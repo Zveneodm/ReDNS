@@ -1,0 +1,9 @@
+github_token
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.idea/
+.vscode/
+res/*.json
