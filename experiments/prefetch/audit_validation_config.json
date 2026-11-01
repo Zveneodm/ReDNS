@@ -1,0 +1,75 @@
+{
+  "seed": 42,
+  "time_scale": 1,
+  "min_time_scale": 0.0001,
+  "max_in_flight": 128,
+  "calibration_requests": 1000,
+  "timing": {
+    "max_mean_lag_seconds": 0.01,
+    "max_window_lag_seconds": 0.05,
+    "consecutive_lag_windows": 3,
+    "max_overrun_seconds": 0.1,
+    "probe_warm_up_seconds": 2,
+    "probe_duration_seconds": 3,
+    "max_attempts": 4,
+    "scale_multiplier": 2.0,
+    "auto_initial_time_scale": 2.0
+  },
+  "pin_cpu": true,
+  "workers": {
+    "client": 2,
+    "forwarder": 3,
+    "manager": 2
+  },
+  "prefetch": {
+    "report_seconds": 0.25,
+    "history_seconds": 30,
+    "advice_seconds": 1,
+    "alpha": 1,
+    "beta": 0,
+    "gamma": 1,
+    "epsilon": null,
+    "zeta": null,
+    "max_per_forwarder": 8
+  },
+  "record_wall_latencies": true,
+  "warm_up_seconds": 4,
+  "duration_seconds": 12,
+  "queries_per_second": 600,
+  "num_clients": 300,
+  "num_forwarders": 10,
+  "forwarder_cluster_size": 5,
+  "client_cache_size": 8,
+  "forwarder_cache_size": 20,
+  "replacement_policy": "lru",
+  "num_domains": 1000,
+  "ttl_range": [
+    30,
+    300
+  ],
+  "ttl_distribution": {
+    "values": [
+      2,
+      6,
+      30
+    ],
+    "probabilities": [
+      0.3,
+      0.4,
+      0.3
+    ]
+  },
+  "query_distribution": "zipf",
+  "zipf_alpha": 1.01,
+  "regional_preferences": {
+    "enabled": true,
+    "region_zipf_alpha": 1.15,
+    "client_zipf_alpha": 1.5,
+    "shared_rank_count": 128
+  },
+  "output_dir": "res",
+  "client_forwarder_RTT": 1,
+  "forwarder_forwarder_RTT": 2,
+  "forwarder_manager_RTT": 1,
+  "forwarder_authoritative_RTT": 110
+}

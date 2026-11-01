@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from heapq import heappop, heappush
+from math import floor
 
 from src.prefetch import Forestall
 from src.records import Record
@@ -16,22 +17,29 @@ class PrefetchProtocol:
         self.prefetch_observations = defaultdict(list)
         self.prefetch_load = defaultdict(int)
         self.prefetch_active = defaultdict(int)
+        self.prefetch_demand_pending = defaultdict(dict)
+        self.prefetch_observation_token = 0
         self.prefetch_fetching = set()
         self.prefetch_queue = []
         self.prefetch_reports = {}
+        self.prefetch_event_buffers = defaultdict(list)
         self.prefetchers = {cluster: Forestall(self.cfg["prefetch"]) for cluster in self.managers}
         self.prefetch_next_advice = defaultdict(lambda: self.cfg["prefetch"]["advice_seconds"])
-        self.prefetch_inflight = set()
+        self.prefetch_inflight = {}
 
     def _demand_started(self, node_id, domain, done):
         if not self.prefetch_enabled or self.role != "forwarder":
             return done
         arrival = self.clock.now
+        self.prefetch_observation_token += 1
+        observation = self.prefetch_observation_token
+        self.prefetch_demand_pending[node_id][observation] = arrival
         self.prefetch_load[node_id] += 1
         self.prefetch_active[node_id] += 1
 
         def completed(answer):
             self.prefetch_active[node_id] -= 1
+            del self.prefetch_demand_pending[node_id][observation]
             expiry, ttl, _ = answer
             self.prefetch_observations[node_id].append((domain, arrival, expiry, ttl))
             done(answer)
@@ -58,9 +66,12 @@ class PrefetchProtocol:
                 node.stats["prefetch_reports_sent"] += self.manager_shards
                 node.stats["prefetch_observations_sent"] += sum(map(len, parts))
                 load = self.prefetch_load.pop(node_id, 0) / interval + self.prefetch_active[node_id]
+                # No later report can contain an arrival older than this bound:
+                # unresolved demand replies keep the bound behind that arrival.
+                watermark = min(self.prefetch_demand_pending[node_id].values(), default=now)
                 for shard, rows in enumerate(parts):
                     self._send("manager", ("prefetch_report", cluster, node_id, shard,
-                                           epoch, load, rows, final, measure))
+                                           epoch, load, rows, watermark, final, measure))
             self.prefetch_epoch = epoch + 1
             self.prefetch_final = final
         for _ in range(128):
@@ -70,7 +81,7 @@ class PrefetchProtocol:
             self._execute_prefetch(node_id, domain, measure)
 
     def _receive_prefetch_report(self, message):
-        _, cluster, forwarder, shard, epoch, load, rows, final, measure = message
+        _, cluster, forwarder, shard, epoch, load, rows, watermark, final, measure = message
         manager = self._select_manager(cluster, measure)
         manager._check_member(forwarder)
         if shard != self.manager_shard:
@@ -82,20 +93,25 @@ class PrefetchProtocol:
         reports = self.prefetch_reports.setdefault(key, {})
         if forwarder in reports:
             raise ValueError("duplicate prefetch report")
-        reports[forwarder] = rows
+        reports[forwarder] = (rows, watermark)
         if len(reports) != len(manager.members):
             return
-        transactions = sorted((row for batch in reports.values() for row in batch),
-                              key=lambda row: (row[1], row[0]))
+        events = self.prefetch_event_buffers[cluster]
+        for batch, _ in reports.values():
+            for domain, arrival, expiry, ttl in batch:
+                heappush(events, (arrival, domain, expiry, ttl))
+        safe_before = min(bound for _, bound in reports.values())
         del self.prefetch_reports[key]
         prefetcher = self.prefetchers[cluster]
-        for row in transactions:
-            prefetcher.observe(*row)
+        while events and events[0][0] < safe_before:
+            arrival, domain, expiry, ttl = heappop(events)
+            prefetcher.observe(domain, arrival, expiry, ttl)
         now = self.clock.now
         end = self.cfg["warm_up_seconds"] + self.cfg["duration_seconds"]
         if final or now >= end or now < self.prefetch_next_advice[cluster]:
             return
-        self.prefetch_next_advice[cluster] = now + self.cfg["prefetch"]["advice_seconds"]
+        advice_period = self.cfg["prefetch"]["advice_seconds"]
+        self.prefetch_next_advice[cluster] = (floor(now / advice_period) + 1) * advice_period
         manager.stats["prefetch_advice_runs"] += 1
         advice = prefetcher.advise(now)
         manager.stats["prefetch_advised"] += len(advice)
@@ -117,8 +133,7 @@ class PrefetchProtocol:
             if due >= end:
                 continue
             assigned[target] += 1
-            self.prefetch_inflight.add((cluster, domain))
-            prefetcher.mark_advised(domain, now)
+            self.prefetch_inflight[(cluster, domain)] = now
             manager.stats["prefetch_tasks_sent"] += 1
             self._send("forwarder", ("prefetch_task", target, domain, due, measure))
 
@@ -173,9 +188,12 @@ class PrefetchProtocol:
         elif kind == "prefetch_result":
             _, cluster, forwarder, domain, expiry, measure = message
             self._select_manager(cluster, measure)._check_member(forwarder)
-            self.prefetch_inflight.discard((cluster, domain))
+            issued_at = self.prefetch_inflight.pop((cluster, domain), None)
             if expiry is not None:
-                self.prefetchers[cluster].refreshed(domain, expiry)
+                prefetcher = self.prefetchers[cluster]
+                if issued_at is not None and domain in prefetcher.tracking:
+                    prefetcher.mark_advised(domain, issued_at)
+                prefetcher.refreshed(domain, expiry)
         else:
             return False
         return True

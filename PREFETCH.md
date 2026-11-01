@@ -4,6 +4,8 @@
 
 本次完整实验与取舍见 [实验结果解读](experiments/prefetch/analysis.md)、[结果表](experiments/prefetch/report.md) 和 [可复跑配置](experiments/prefetch/config.json)。
 
+后续实现审查、修复及上次数据的逐请求拆解见 [审查报告](experiments/prefetch/audit.md)。第一次完整实验对应提交 `117da42`，不代表后续修复后的性能。
+
 ```bash
 python3 -m sim.run_comparison --include-prefetch --config experiments/prefetch/config.json --output-dir res/prefetch
 python3 -m sim.report_prefetch res/prefetch --output-dir experiments/prefetch
@@ -12,11 +14,11 @@ python3 -m sim.run_prefetch --config config.json
 
 这是对 [Forestall, Ferreira and Oki, TNSM 2026, Section III-B](https://doi.org/10.1109/TNSM.2026.3704549) 的工程适配，不是作者代码的严格复现。采用请求间隔/TTL 的 Welford 统计、历史窗口 H、建议窗口 A、一次性访问过滤、无效建议过滤和按 deadline 排序。新增集群热度合并、任务限额和按上报负载分配。
 
-每个 forwarder 每 `report_seconds` 模拟秒批量上报其实际收到的前台请求的域名、到达时间、响应绝对期限、权威 TTL，以及本周期处理请求数与当前未完成数。client 本地命中、邻居帮助查询、后台预取均不作为新的需求样本，不读取生成器的偏好或未来序列。不同 forwarder 的间隔摘要不能直接相加，所以上报保留到达时间，manager 按时间合并后计算集群级间隔。延迟回复造成的旧到达样本不产生负间隔。
+每个 forwarder 每 `report_seconds` 模拟秒批量上报其实际收到的前台请求的域名、到达时间、响应绝对期限、权威 TTL，以及本周期处理请求数与当前未完成数。client 本地命中、邻居帮助查询、后台预取均不作为新的需求样本，不读取生成器的偏好或未来序列。不同 forwarder 的间隔摘要不能直接相加，所以上报保留到达时间，manager 按时间合并后计算集群级间隔。报告同时包含最早未完成请求的时间界限；manager 暂存尚无法确定顺序的事件，跨批次有序合并，避免漏计迟到回复。跟踪器拒绝乱序输入。
 
 热度数据按现有 `(cluster × num_domains + domain) % manager_workers` 路由到唯一 manager 分片。每个周期所有成员的报告到齐后合并样本，包括空报告；负载信息送往全部 manager 分片。每个集群独立生成预取列表，不跨集群分享记录或热度。单 forwarder 的集群也启动 manager 执行预取。
 
-manager 最多每 `advice_seconds` 秒生成一次建议。H 用于移除最后一次请求已超过窗口的域名，持续活跃域名保留累计统计，间歇超过 H 后重新学习。至少 `alpha` 个间隔才可建议；方差分母为 `样本数 - beta`，不足时跳过。集群适配使用 `平均间隔 + gamma × 标准差` 作为距最后请求的活跃容忍时间；预测下次到达不晚于 `now + A`，且实际观察的有效期不覆盖整个 A，才进入列表。deadline 取预测到达和观察期限的较早者，最早为当前时刻。`epsilon` 跳过连续无需求的建议，`zeta` 移除对应条目；`null` 表示不限制。一次建议只结算一次失败。这里的 H 与 gamma 处理及按观察期限抑制刷新属于工程选择，不能视为论文 Algorithm 2 的逐行复现。
+manager 在 `advice_seconds` 对应的固定模拟时间边界生成建议，由边界后首个完整报告触发，避免用实际处理时刻重新计时造成周期漂移；错过的历史边界不会集中补跑。H 用于移除最后一次请求已超过窗口的域名，持续活跃域名保留累计统计，间歇超过 H 后重新学习。至少 `alpha` 个间隔才可建议；方差分母为 `样本数 - beta`，不足时跳过。集群适配使用 `平均间隔 + gamma × 标准差` 作为距最后请求的活跃容忍时间；预测下次到达不晚于 `now + A`，且实际观察的有效期不覆盖整个 A，才进入列表。deadline 取预测到达和观察期限的较早者，最早为当前时刻。`epsilon` 跳过连续无需求的建议，`zeta` 移除对应条目；`null` 表示不限制。只有实际完成的预取才计作一次建议，单次建议只结算一次失败；跳过任务不消耗失败额度。这里的 H 与 gamma 处理及按观察期限抑制刷新属于工程选择，不能视为论文 Algorithm 2 的逐行复现。
 
 每个列表按 deadline 排序，优先分配给上报负载较小的 forwarder，同轮分配计入临时负载。负载为最近报告周期内收到的前台请求及帮助请求数 / 周期长度，加当前未完成的前台与预取请求数；这是周期采样，不能保证调度瞬间的全局最小负载。多 manager 分片对每个 forwarder 使用互不重叠的预算份额。同分时按域名轮转，避免总选最小编号。`max_per_forwarder` 同时限制每轮总分配额度及执行时的在途任务；前台繁忙时跳过任务。它是保护上限，不保证每个 forwarder 分到相同数量的预取。
 

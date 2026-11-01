@@ -41,14 +41,13 @@ class Forestall:
 
     def observe(self, domain, arrival, expiry, ttl):
         entry = self.tracking.get(domain)
+        if entry is not None and arrival < entry.last_arrival:
+            raise ValueError("Forestall observations must be globally ordered by arrival")
         if entry is None or arrival - entry.last_arrival > self.cfg["history_seconds"]:
             entry = self.tracking[domain] = TrackedDomain(arrival, expiry)
         else:
-            # A late reply can put an older transaction in a newer report.
-            # Do not fabricate a negative or zero interval for that transaction.
-            if arrival >= entry.last_arrival:
-                entry.intervals.add(arrival - entry.last_arrival)
-                entry.last_arrival = arrival
+            entry.intervals.add(arrival - entry.last_arrival)
+            entry.last_arrival = arrival
             entry.expires_at = max(entry.expires_at, expiry)
         entry.ttls.add(ttl)
 

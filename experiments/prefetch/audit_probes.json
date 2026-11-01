@@ -1,0 +1,34 @@
+{
+  "collapsed_priority": {
+    "advice": [
+      [
+        12,
+        0
+      ],
+      [
+        12,
+        100
+      ]
+    ],
+    "average_interarrivals": {
+      "0": 4.0,
+      "100": 0.40000000000000036
+    },
+    "explanation": "Both deadlines collapse to now; numeric domain ID precedes request frequency."
+  },
+  "ttl_is_not_cache_presence": {
+    "actual_cache_has_record": false,
+    "manager_has_live_region": false,
+    "observed_expires_at": 100,
+    "advised": false,
+    "next_demand_causes_origin": true
+  },
+  "accumulated_rtt_is_not_service_occupancy": {
+    "configured_authority_rtt_ms": 110,
+    "returned_latency_ms": 112.0,
+    "clock_after_query": 0.0,
+    "forwarder_active_after_query": {
+      "0": 0
+    }
+  }
+}
