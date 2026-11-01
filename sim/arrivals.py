@@ -9,11 +9,11 @@ from sim.preferences import HierarchicalZipf
 
 
 class Workload:
-    def __init__(self, config):
+    def __init__(self, config, *, hierarchical=None):
         self.config = config
         self.arrival_rng = random.Random(config["seed"] + 2)
         self.query_rng = random.Random(config["seed"])
-        self.hierarchical = (HierarchicalZipf(config)
+        self.hierarchical = ((hierarchical if hierarchical is not None else HierarchicalZipf(config))
                              if config["regional_preferences"]["enabled"] else None)
         if self.hierarchical is not None:
             self.hierarchical.prepare(config["num_clients"])

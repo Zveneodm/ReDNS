@@ -6,4 +6,5 @@ __pycache__/
 venv/
 .idea/
 .vscode/
-res/*.json
+res/*
+!res/.gitkeep

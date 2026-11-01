@@ -1,16 +1,20 @@
 """One shared clock for all cache deadlines in a simulation."""
 
 from time import perf_counter_ns
+from math import isfinite
 
 
-class SimulationClock:
+class ManualClock:
+    """Controllable clock for cache and protocol tests; not an experiment runner."""
+
     def __init__(self):
-        self.now = 0
+        self.now = 0.0
 
-    def advance(self, seconds=1):
-        if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds < 0:
-            raise ValueError("time must be a non-negative integer")
-        self.now += seconds
+    def advance_to(self, when):
+        if (isinstance(when, bool) or not isinstance(when, (int, float))
+                or not isfinite(when) or when < self.now):
+            raise ValueError("time must be finite and monotonic")
+        self.now = when
 
 
 class RealtimeClock:

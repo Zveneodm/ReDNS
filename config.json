@@ -1,21 +1,31 @@
 {
   "seed": 42,
-  "execution_mode": "realtime",
-  "time_scale": "auto",
+  "time_scale": 2.0,
   "min_time_scale": 0.0001,
   "max_in_flight": 512,
   "calibration_requests": 1000,
+  "timing": {
+    "max_mean_lag_seconds": 0.01,
+    "max_window_lag_seconds": 0.05,
+    "consecutive_lag_windows": 3,
+    "max_overrun_seconds": 0.1,
+    "probe_warm_up_seconds": 20,
+    "probe_duration_seconds": 30,
+    "max_attempts": 4,
+    "scale_multiplier": 2.0,
+    "auto_initial_time_scale": 2.0
+  },
   "pin_cpu": true,
   "record_wall_latencies": true,
-  "warm_up_seconds": 1000,
-  "duration_seconds": 2000,
-  "queries_per_second": 5000,
+  "warm_up_seconds": 200,
+  "duration_seconds": 600,
+  "queries_per_second": 15000,
   "num_clients": 30000,
-  "num_forwarders": 3000,
+  "num_forwarders": 100,
+  "forwarder_cluster_size": 100,
   "client_cache_size": 1000,
   "forwarder_cache_size": 1000,
-  "pub_cache_size": 100000,
-  "min_transfer_ttl": 60,
+  "replacement_policy": "lru",
   "num_domains": 1000000,
   "ttl_distribution": {
     "values": [20, 60, 300, 900, 3600, 86400, 172800],
@@ -27,12 +37,11 @@
     "enabled": true,
     "region_zipf_alpha": 1.15,
     "client_zipf_alpha": 1.50,
-    "shared_rank_count": 128,
-    "learning_half_life_seconds": 600.0,
-    "max_learned_domains_per_child": 32
+    "shared_rank_count": 128
   },
   "output_dir": "res",
   "client_forwarder_RTT": 1,
-  "forwarder_pub_RTT": 10,
-  "pub_auth_RTT": 50
+  "forwarder_forwarder_RTT": 2,
+  "forwarder_manager_RTT": 1,
+  "forwarder_authoritative_RTT": 110
 }
