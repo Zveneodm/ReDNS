@@ -11,7 +11,7 @@ ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供�
 - **baseline**：client 和 forwarder 各自维护普通缓存，forwarder 未命中就查询权威服务器。
 - **ReDNS**：forwarder 未命中后先查询直属 client 副本，再向本集群 manager 定位可用区域，并定向查询相应 forwarder；没有可用区域或已知候选均失败后查询权威服务器。
 - **ReDNS-prefetch**：在 ReDNS 上增加集群热度上报、manager 生成预取列表、低负载 forwarder 执行预取，以及按上报负载排序区域查询候选。用 `--include-prefetch` 启用三组对照。
-- **baseline-prefetch**：普通 client / forwarder 缓存加上相同的集群预取算法、预算与任务派发；不启用 ReDNS 的副本查询、跨区域取回及淘汰转存。用 `--prefetch-ablation` 仅比较它与 ReDNS-prefetch，测量相同预取机制下 ReDNS 协作的额外收益。
+- **baseline-prefetch**：每个 forwarder 独立运行 Forestall，按自己的热度、请求间隔和有效期生成候选，并预取到自己。manager 只共享预算，不汇总热度或运行预测；预算比例和 ReDNS-prefetch 相同。不启用副本查询、跨区域取回及淘汰转存。用 `--prefetch-ablation` 比较本地预取与 ReDNS 集群预取，说明见 [本地预取基线](experiments/local-prefetch/Readme.md)。
 
 实验拓扑为 **client → forwarder → 权威服务器**，同集群 forwarder 可以互相查询缓存。每个 client 固定连接一个 forwarder，编号映射为 `client_id % num_forwarders`；副本目录只在所属 forwarder 内维护，集群外不相互查询。
 
@@ -90,7 +90,7 @@ python3 -m sim.report_prefetch res/prefetch-ablation --output-dir experiments/pr
 python3 -m sim.run_baseline_prefetch --config config.json
 ```
 
-该对照保留相同的标准配置、预取策略和预算比例，baseline-prefetch 的 manager 只执行预取。baseline 预取记录只能在落点 forwarder 使用，ReDNS 还能通过目录共享。预算按各模型实际到达 forwarder 的前台请求计费，因此预取次数不强制相等；报告同时比较前台时延、前台与后台回源总量及预取使用比例。实现说明、配置快照和标准实验报告见 [预取消融实验](experiments/prefetch-ablation/Readme.md)。
+该对照保留相同的标准配置、Forestall 数学预测参数和预算比例。baseline 的预测状态按 forwarder 隔离，预取只回到产生需求的节点；ReDNS 保留集群预测、低负载派发和目录共享。两组都按集群累计需求共享额度，统一使用 `floor(已上报前台需求 × budget_ratio)`，不会在每个 forwarder 单独取整。相同预算比例不强制实际次数相同；报告同时展示预算额度与实际预取比例。[旧预取消融实验](experiments/prefetch-ablation/Readme.md)中的 0.48% 来自此前的集群派发 baseline，不代表当前本地预测基线。
 
 进程数通过 `workers` 配置；`config.json` 省略该项，各角色默认 1 个进程。预取正式对照配置 `experiments/prefetch/config.json` 使用 2 个 client、4 个 forwarder、2 个 manager，加权威和请求调度各 1 个，共 10 个模拟进程。baseline 使用相同的公共进程及其 CPU，manager 槽位空闲。父进程协调运行与收集结果，不计入这些模拟进程。Linux / WSL 下可绑定 CPU；可用 CPU 不足时复用，client / forwarder 进程数不会超过各自节点数。
 

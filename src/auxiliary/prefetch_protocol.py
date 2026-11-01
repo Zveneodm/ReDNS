@@ -6,13 +6,15 @@ from math import floor
 
 from src.auxiliary.prefetch import Forestall
 from src.auxiliary.prefetch_budget import ClusterPrefetchBudget
+from src.auxiliary.local_prefetch import LocalPrefetchProtocol
 from src.records import Record
 from src.variants import PREFETCH_MODELS
 
 
-class PrefetchProtocol:
+class PrefetchProtocol(LocalPrefetchProtocol):
     def _init_prefetch(self, manager_shards, manager_shard):
         self.prefetch_enabled = self.model in PREFETCH_MODELS
+        self.local_prefetch = self.model == "baseline-prefetch"
         self.manager_shards, self.manager_shard = manager_shards, manager_shard
         self.prefetch_epoch = 1
         self.prefetch_final = False
@@ -28,7 +30,8 @@ class PrefetchProtocol:
         self.prefetch_reports = {}
         self.prefetch_report_epoch = {}
         self.prefetch_event_buffers = defaultdict(list)
-        self.prefetchers = {cluster: Forestall(self.cfg["prefetch"]) for cluster in self.managers}
+        self.prefetchers = ({cluster: Forestall(self.cfg["prefetch"]) for cluster in self.managers}
+                           if not self.local_prefetch else {})
         self.prefetch_next_advice = defaultdict(lambda: self.cfg["prefetch"]["advice_seconds"])
         self.prefetch_inflight = {}
         self.prefetch_budget_batches = {}
@@ -39,6 +42,7 @@ class PrefetchProtocol:
                                            self.cfg["num_forwarders"])
             for cluster, manager in self.managers.items()
             if cluster % manager_shards == manager_shard}
+        self._init_local_prefetch()
 
     def _demand_started(self, node_id, domain, done, *, measure=None):
         if not self.prefetch_enabled or self.role != "forwarder":
@@ -72,6 +76,9 @@ class PrefetchProtocol:
             return
         if self.role != "forwarder":
             return
+        if self.local_prefetch:
+            self._tick_local_prefetch()
+            return
         now = self.clock.now
         end = self.cfg["warm_up_seconds"] + self.cfg["duration_seconds"]
         interval = self.cfg["prefetch"]["report_seconds"]
@@ -101,6 +108,9 @@ class PrefetchProtocol:
                                            epoch, load, rows, watermark, counts, final, measure))
             self.prefetch_epoch = epoch + 1
             self.prefetch_final = final
+        self._drain_prefetch_queue(now)
+
+    def _drain_prefetch_queue(self, now):
         for _ in range(128):
             if not self.prefetch_queue or self.prefetch_queue[0][0] > now:
                 break
@@ -211,9 +221,15 @@ class PrefetchProtocol:
                 return
             candidate, target = task
             self._select_manager(cluster, measure).stats["prefetch_budget_reserved"] += 1
-            self._send("manager", ("prefetch_dispatch", cluster, target, candidate.domain,
-                                   candidate.deadline, candidate.valid_until,
-                                   candidate.observed_expiry, now, measure))
+            if self.local_prefetch:
+                self._select_manager(cluster, measure).stats["prefetch_tasks_sent"] += 1
+                self._send("forwarder", ("prefetch_local_grant", target, candidate.domain,
+                                         candidate.deadline, candidate.valid_until,
+                                         candidate.observed_expiry, now, measure))
+            else:
+                self._send("manager", ("prefetch_dispatch", cluster, target, candidate.domain,
+                                       candidate.deadline, candidate.valid_until,
+                                       candidate.observed_expiry, now, measure))
 
     def _receive_prefetch_dispatch(self, message):
         _, cluster, target, domain, deadline, valid_until, known_expiry, issued_at, measure = message
@@ -235,9 +251,10 @@ class PrefetchProtocol:
     def _receive_prefetch_budget_result(self, message):
         _, cluster, target, domain, success, measure = message
         budget = self.prefetch_budgets[cluster]
-        if budget.inflight.get(domain, ())[:2] != (target, measure):
+        key = (target, domain) if self.local_prefetch else domain
+        if budget.inflight.get(key, ())[:2] != (target, measure):
             raise ValueError("prefetch completion does not match its budget reservation")
-        budget.finish(domain, success)
+        budget.finish(key, success)
         if not success:
             self._select_manager(cluster, measure).stats["prefetch_budget_refunded"] += 1
         self._dispatch_prefetch_budget(cluster)
@@ -248,10 +265,15 @@ class PrefetchProtocol:
         end = self.cfg["warm_up_seconds"] + self.cfg["duration_seconds"]
 
         def result(expiry):
-            self._send("manager", ("prefetch_result", node_id // self.clusters.size,
-                                   node_id, domain, expiry, measure))
+            if self.local_prefetch:
+                self._finish_local_prefetch(node_id, domain, expiry)
+            else:
+                self._send("manager", ("prefetch_result", node_id // self.clusters.size,
+                                       node_id, domain, expiry, measure))
 
-        if (self.clock.now >= end or not node.capacity or key in self.prefetch_fetching or
+        stale_local = (self.local_prefetch and self._local_grant_is_stale(
+            node_id, domain, self.local_prefetch_grants[key]))
+        if (stale_local or self.clock.now >= end or not node.capacity or key in self.prefetch_fetching or
                 self.prefetch_running[node_id] >= self.cfg["prefetch"]["max_inflight_per_forwarder"]):
             node.stats["prefetch_skipped"] += 1
             result(None)
@@ -281,7 +303,13 @@ class PrefetchProtocol:
 
     def _prefetch_message(self, message):
         kind = message[0]
-        if kind == "prefetch_report":
+        if kind == "prefetch_local_report":
+            self._receive_local_prefetch_report(message)
+        elif kind == "prefetch_local_grant":
+            self._receive_local_prefetch_grant(message)
+        elif kind == "prefetch_local_result":
+            self._receive_prefetch_budget_result(message)
+        elif kind == "prefetch_report":
             self._receive_prefetch_report(message)
         elif kind == "prefetch_candidates":
             self._receive_prefetch_candidates(message)

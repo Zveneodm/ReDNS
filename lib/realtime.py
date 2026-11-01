@@ -463,6 +463,10 @@ class RealtimeSimulation:
                 manager_enabled="manager" in self.roles,
                 cooperation_enabled=self.model in COOPERATIVE_MODELS,
                 prefetch_enabled=self.model in PREFETCH_MODELS,
+                prefetch_scope=("forwarder" if self.model == "baseline-prefetch" else
+                                "cluster" if self.model == "ReDNS-prefetch" else "disabled"),
+                prefetch_budget_scope="cluster",
+                prefetch_budget_basis="forwarder_foreground_queries",
                 manager=empty_manager_metrics(), managers=[],
                 clock_basis="scaled_monotonic_wall_time",
                 network_latency_model="accumulated_rtt",

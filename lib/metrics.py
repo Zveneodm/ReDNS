@@ -47,6 +47,10 @@ def validate_results(result):
     equal(forwarder["prefetch_reports_sent"], manager["prefetch_reports_received"], "prefetch reports")
     equal(forwarder["prefetch_observations_sent"], manager["prefetch_observations_received"],
           "prefetch observations")
+    if result.get("prefetch_scope") == "forwarder":
+        equal(forwarder["prefetch_observations_sent"], 0, "local heat stays at forwarders")
+        equal(manager["prefetch_advice_runs"], 0, "local baseline has no manager forecasting")
+        equal(manager["prefetch_advised"], 0, "local baseline has no manager-generated candidates")
     equal(manager["prefetch_tasks_sent"], forwarder["prefetch_tasks_received"], "prefetch tasks")
     equal(forwarder["prefetch_tasks_received"], forwarder["prefetch_started"] +
           forwarder["prefetch_skipped"], "prefetch task outcomes")

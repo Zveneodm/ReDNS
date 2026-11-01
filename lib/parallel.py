@@ -66,6 +66,10 @@ class WorkerLayout:
                 raise ValueError(f"unknown worker: {role}")
             return role
         kind = message[0]
+        if kind in ("prefetch_local_report", "prefetch_local_result"):
+            return self.name("manager", message[1] % self.counts["manager"])
+        if kind == "prefetch_local_grant":
+            return self.owner("forwarder", message[1])
         if kind == "prefetch_report":
             return self.name("manager", message[3])
         if kind == "prefetch_result":

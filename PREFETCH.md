@@ -4,14 +4,16 @@
 
 实现已集中在 `src/auxiliary/`。普通入口按 `config.json` 的 `prefetch.enabled` 决定是否启用，省略时默认 `false`；`run_prefetch.py` 与 `run_baseline_prefetch.py` 是兼容入口，也读取同一开关。当前标准配置显式设为 `true`，其余算法与预算参数未改动。默认结果保存于自动递增的 `res/YYYYMMDD-N/`。
 
-另提供 `baseline-prefetch`，用于比较相同集群预取策略下开启 ReDNS 协作的额外收益。它使用 `BaselineForwarder`、相同 Forestall 跟踪器和集群预算、相同的低负载派发，但没有 client 副本目录、区域可用性发布、邻居取回或淘汰转存。manager 仅负责预取，预取完成仍只存入目标 forwarder 的普通缓存。实现与标准实验说明见 [预取消融对照](experiments/prefetch-ablation/Readme.md)。
+另提供 `baseline-prefetch`：每个 `BaselineForwarder` 独立维护 Forestall 跟踪器，只观察自身收到的前台需求，使用自身的请求间隔和有效期生成候选，预取记录固定放回自身缓存。manager 只负责共享预算、发放额度和并发上限，不合并热度或运行预测；候选的截止时间等算法输出随额度申请发送。没有 client 副本目录、区域发布、邻居取回或淘汰转存。实现与验证见 [本地预取基线](experiments/local-prefetch/Readme.md)。本节后续集群热度合并、低负载派发的说明适用于 ReDNS-prefetch。
 
 ```bash
 python3 -m sim.run_comparison --prefetch-ablation --config config.json --output-dir res/prefetch-ablation
 python3 -m sim.report_prefetch res/prefetch-ablation --output-dir experiments/prefetch-ablation
 ```
 
-`--prefetch-ablation` 只运行 baseline-prefetch 与 ReDNS-prefetch，和三组入口 `--include-prefetch` 互斥。两组都执行完整协议试跑和时序检查，共享进程所有权及 CPU 绑定（包括 manager）；任一组失败则整轮从空缓存重试，不与旧实验结果拼接。结果报告包含前台 RTT、前台/后台/总权威查询、预取至少使用一次的记录比例和每用户请求的总回源成本。相同预算比例不保证相同预取数量，因为它依赖模型实际到达 forwarder 的需求。结论限于当前集群派发策略、负载及单个 seed，不预设 ReDNS 必然在所有指标上更优。
+`--prefetch-ablation` 只运行 baseline-prefetch 与 ReDNS-prefetch，和三组入口 `--include-prefetch` 互斥。两组都执行完整协议试跑和时序检查，共享进程所有权及 CPU 绑定（包括 manager）；任一组失败则整轮从空缓存重试，不与旧实验结果拼接。两组使用相同 Forestall 参数和预算比例，但预测范围分别为 forwarder / cluster。额度都按每集群累计上报需求取整一次，而非各节点分别取整；相同预算比例不保证相同实际数量。结果报告包含前台 RTT、前台/后台/总权威查询、预取使用比例、预算额度和实际预取占已上报需求的比例，不预设 ReDNS 必然在所有指标上更优。
+
+本地基线实现位于 `src/auxiliary/local_prefetch.py`。候选以 `(forwarder_id, domain_id)` 区分，同一域名可以在多个 forwarder 独立预取；目标并发槽满时只等待，不改派到其他空闲节点。实际执行前再次检查本地回复是否更新；过时、超出观察窗口或无法存储的任务跳过并退还额度。后台预取继续不计入前台配置 RTT。
 
 第一次完整实验与取舍见 [实验结果解读](experiments/prefetch/analysis.md)、[结果表](experiments/prefetch/report.md) 和 [当时配置](experiments/prefetch/config.json)。当前配置已改用集群共享的 `budget_ratio` 预算，历史实验不代表当前版本的性能。
 

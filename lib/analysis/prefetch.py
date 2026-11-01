@@ -47,6 +47,12 @@ def summarize(directory):
             coalesced_queries=result["forwarder"].get("coalesced_queries", 0),
             cooperation_enabled=result.get("cooperation_enabled", model.startswith("ReDNS")),
             prefetch_enabled=result.get("prefetch_enabled", model.endswith("-prefetch")),
+            prefetch_scope=result.get("prefetch_scope", "cluster" if model.endswith("-prefetch") else "disabled"),
+            prefetch_budget_basis=result.get("prefetch_budget_basis", "forwarder_foreground_queries"),
+            prefetch_fraction_of_reported_demand=(
+                (result["prefetch_authoritative_queries"] / result["manager"]["prefetch_budget_demand"]
+                 if result["manager"]["prefetch_budget_demand"] else 0)
+                if "prefetch_budget_demand" in result["manager"] else None),
             timing_valid=result["timing_valid"],
             mean_lag_seconds=result["timing_validation"]["mean_lag_seconds"],
             max_lag_seconds=result["timing_validation"]["max_lag_seconds"],
@@ -84,6 +90,8 @@ def main(argv=None):
     manifest, rows = summarize(args.directory)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cfg = manifest["common_config"]
+    ratio = cfg["prefetch"].get("budget_ratio")
+    ratio_label = f"{ratio:g}" if ratio is not None else "未记录（旧版本）"
     first = next(iter(manifest["models"].values()))
     ablation = "baseline-prefetch" in rows and "ReDNS-prefetch" in rows
     comparisons = {}
@@ -118,7 +126,8 @@ def main(argv=None):
                   f"{prefetch['prefetch_records_used']:,} 条；跳过 {prefetch['prefetch_skipped']:,} 个任务。"]
     if ablation:
         gains = comparisons["ReDNS-prefetch_vs_baseline-prefetch"]
-        lines += ["", "## 开启相同预取策略后，ReDNS 的额外收益", "",
+        local_baseline = rows["baseline-prefetch"]["prefetch_scope"] == "forwarder"
+        lines += ["", "## 相同预算比例下的两组预取对照", "",
                   f"相对 baseline-prefetch，ReDNS-prefetch 的平均 RTT 延迟降低 "
                   f"{percentage(gains['average_latency_ms_reduction'])}，前台回源降低 "
                   f"{percentage(gains['foreground_authoritative_queries_reduction'])}，总回源降低 "
@@ -129,11 +138,26 @@ def main(argv=None):
             lines.append(f"| {model} | {row['prefetch_stored']:,} | {row['prefetch_records_used']:,} | "
                          f"{row['prefetch_use_fraction']:.3%} | {row['authority_queries_per_request']:.6f} | "
                          f"{row['successful_reverse_queries']:,} | {row['cluster_hits']:,} |")
-        lines += ["", "两组共用集群热度算法、预算比例、低负载派发、缓存容量、TTL、并发 miss 合并和请求序列。",
-                  "baseline-prefetch 的 manager 仅执行预取，不启用副本目录、区域发现、邻居取回或淘汰转存；",
-                  "预取结果只能由落点 forwarder 的请求使用。ReDNS-prefetch 可通过副本及区域目录共享答案。",
-                  "这项消融衡量在当前集群预取策略上增加 ReDNS 整套协作机制的效果，不是所有独立 resolver 预取策略的上限。",
-                  "预算按各模型实际到达 forwarder 的请求产生，相同比例不意味着相同的预取次数；总回源包含后台成本。",
+        if local_baseline:
+            lines += ["", "baseline-prefetch 的每个 forwarder 独立运行 Forestall，使用自身热度、请求间隔和有效期，",
+                      "候选只派回该 forwarder。manager 只统一记账、发放额度，不接收热度样本或运行预测算法。",
+                      "ReDNS-prefetch 保留集群汇总预测、低负载派发和副本共享。两组使用相同的 Forestall 参数、",
+                      "预算比例、缓存容量、TTL、并发 miss 合并和请求序列。baseline 不启用副本查询或淘汰转存。"]
+        else:
+            lines += ["", "此文件来自旧的集群派发 baseline：两组均汇总集群热度并按低负载选择落点，",
+                      "baseline 无法共享该落点的缓存。它不代表当前按 forwarder 独立预测的本地预取基线。"]
+        lines += ["", "预算按各模型实际到达 forwarder 的请求产生，相同比例不意味着相同的预取次数；总回源包含后台成本。",
+                  f"配置 budget_ratio={ratio_label}；当前版本按各集群累计上报需求取整一次，共享额度，预热与正式阶段分别记账。",
+                  "| 模型 | 预测范围 | 已上报预算需求 | 预算额度 | 实际预取 / 已上报需求 |",
+                  "| --- | --- | ---: | ---: | ---: |"]
+        for model, row in rows.items():
+            budget = row["prefetch_budget"]
+            actual_ratio = row["prefetch_fraction_of_reported_demand"]
+            actual_ratio_label = f"{actual_ratio:.3%}" if actual_ratio is not None else "N/A（旧版本未记录）"
+            lines.append(f"| {model} | {row['prefetch_scope']} | {budget.get('prefetch_budget_demand', 0):,} | "
+                         f"{budget.get('prefetch_budget_allowance', 0):,} | "
+                         f"{actual_ratio_label} |")
+        lines += ["",
                   "预取使用比例为正式阶段存入记录中至少在落点被使用一次的比例，观察末尾尚有效、未使用的记录不一定浪费；",
                   "逐出并转存后的后续使用由转存指标跟踪，不追记到原预取记录的使用数。"]
     lines += ["", "各组均从空缓存独立运行；工作负载与权威 TTL 指纹、公共进程所有权与 CPU 分配完全一致。",

@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from fractions import Fraction
 from heapq import heapify, heappop, heappush
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,11 @@ class PrefetchCandidate:
     observed_expiry: float
     mean_interval: float
     version: int
+    target: Optional[int] = None
+
+    @property
+    def key(self):
+        return self.domain if self.target is None else (self.target, self.domain)
 
 
 class ClusterPrefetchBudget:
@@ -53,21 +59,24 @@ class ClusterPrefetchBudget:
             changes.append(self.allowance(measure) - previous)
         return changes
 
-    def offer(self, shard, advice, now):
+    def offer(self, shard, advice, now, *, target=None):
         """Replace this shard's previous advice; other shards remain independent."""
         for domain, candidate in list(self.pending.items()):
-            if candidate.shard == shard:
+            if candidate.shard == shard and candidate.target == target:
                 del self.pending[domain]
         for domain, deadline, valid_until, expiry, interval in advice:
-            if domain in self.inflight or valid_until <= now:
+            key = domain if target is None else (target, domain)
+            if target is not None and target not in self.members:
+                raise ValueError("prefetch target is outside its budget cluster")
+            if key in self.inflight or valid_until <= now:
                 continue
             self.version += 1
             candidate = PrefetchCandidate(domain, shard, deadline, valid_until, expiry,
-                                          interval, self.version)
-            self.pending[domain] = candidate
-            heappush(self.heap, (deadline, interval, domain, candidate.version))
+                                          interval, self.version, target)
+            self.pending[key] = candidate
+            heappush(self.heap, (deadline, interval, domain, candidate.version, key))
         if len(self.heap) > 2 * len(self.pending) + 256:
-            self.heap = [(row.deadline, row.mean_interval, row.domain, row.version)
+            self.heap = [(row.deadline, row.mean_interval, row.domain, row.version, row.key)
                          for row in self.pending.values()]
             heapify(self.heap)
 
@@ -77,25 +86,38 @@ class ClusterPrefetchBudget:
         targets = [member for member in self.members if self.active[member] < self.max_inflight]
         if not targets:
             return None
-        while self.heap:
-            _, _, domain, version = heappop(self.heap)
-            candidate = self.pending.get(domain)
-            if candidate is None or candidate.version != version:
-                continue
-            del self.pending[domain]
-            if candidate.valid_until <= now:
-                continue
-            target = min(targets, key=lambda member: (
-                self.loads.get(member, float("inf")) + self.active[member],
-                (member - domain) % self.num_forwarders))
-            self.active[target] += 1
-            self.reserved[measure] += 1
-            self.inflight[domain] = (target, measure, now)
-            return candidate, target
+        deferred = []
+        try:
+            while self.heap:
+                item = heappop(self.heap)
+                _, _, domain, version, key = item
+                candidate = self.pending.get(key)
+                if candidate is None or candidate.version != version:
+                    continue
+                if candidate.valid_until <= now:
+                    del self.pending[key]
+                    continue
+                if candidate.target is not None and candidate.target not in targets:
+                    # Local advice must wait for its own forwarder; another
+                    # idle member cannot consume a record it cannot share.
+                    deferred.append(item)
+                    continue
+                del self.pending[key]
+                target = (candidate.target if candidate.target is not None else
+                          min(targets, key=lambda member: (
+                              self.loads.get(member, float("inf")) + self.active[member],
+                              (member - domain) % self.num_forwarders)))
+                self.active[target] += 1
+                self.reserved[measure] += 1
+                self.inflight[key] = (target, measure, now)
+                return candidate, target
+        finally:
+            for item in deferred:
+                heappush(self.heap, item)
         return None
 
-    def finish(self, domain, success):
-        target, measure, issued_at = self.inflight.pop(domain)
+    def finish(self, key, success):
+        target, measure, issued_at = self.inflight.pop(key)
         self.active[target] -= 1
         if not success:
             self.refunded[measure] += 1

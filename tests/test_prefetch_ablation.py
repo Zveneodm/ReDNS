@@ -17,7 +17,7 @@ from tests.test_timing import fake_result
 
 
 class PrefetchAblationTests(unittest.TestCase):
-    def test_same_prefetch_policy_with_and_without_cooperative_retrieval(self):
+    def test_local_baseline_and_cluster_redns_prefetch_at_their_own_scope(self):
         for model in PREFETCH_ABLATION_MODELS:
             with self.subTest(model=model):
                 harness = ProtocolHarness(model, client_cache_size=0, ttl_range=[2, 2],
@@ -32,18 +32,17 @@ class PrefetchAblationTests(unittest.TestCase):
                 harness.clock.advance_to(1)
                 forwarder.prefetch_tick()
                 harness.drain()
-                self.assertEqual(forwarder.prefetch_queue[0][1:3], (1, 7))
+                target = 0 if model == "baseline-prefetch" else 1
+                self.assertEqual(forwarder.prefetch_queue[0][1:3], (target, 7))
                 harness.clock.advance_to(1.9)
                 forwarder.prefetch_tick()
                 harness.drain()
                 self.assertEqual(harness.layers["authority"].authority.prefetch_queries, 1)
                 harness.clock.advance_to(2.1)
-                self.assertEqual(harness.query(1, 7)[2], 1)
                 answer = harness.query(0, 7)
-                self.assertEqual(answer[2], 111 if model == "baseline-prefetch" else 4)
-                self.assertEqual(harness.layers["authority"].authority.queries,
-                                 2 if model == "baseline-prefetch" else 1)
-                self.assertEqual(forwarder.nodes[1].stats["prefetch_records_used"], 1)
+                self.assertEqual(answer[2], 1 if model == "baseline-prefetch" else 4)
+                self.assertEqual(harness.layers["authority"].authority.queries, 1)
+                self.assertEqual(forwarder.nodes[target].stats["prefetch_records_used"], 1)
                 if model == "baseline-prefetch":
                     self.assertIsInstance(forwarder.nodes[0], BaselineForwarder)
                     self.assertFalse(forwarder.cooperation_enabled)
@@ -53,6 +52,7 @@ class PrefetchAblationTests(unittest.TestCase):
                         self.assertEqual(forwarder.nodes[0].stats[field], 0)
                     with self.assertRaisesRegex(ValueError, "ReDNS forwarders"):
                         forwarder._serve_cluster(1, 99, 0, 7, True)
+                    self.assertEqual(harness.query(1, 7)[2], 111)
 
     def test_baseline_prefetch_does_not_use_client_copies_or_transfer_evictions(self):
         harness = ProtocolHarness("baseline-prefetch", forwarder_cluster_size=2,
@@ -105,9 +105,12 @@ class PrefetchAblationTests(unittest.TestCase):
                 self.assertGreater(result["prefetch_authoritative_queries"], 0)
                 self.assertTrue(result["prefetch_enabled"])
                 self.assertEqual(result["cooperation_enabled"], model == "ReDNS-prefetch")
+                self.assertEqual(result["prefetch_scope"], "forwarder" if model == "baseline-prefetch" else "cluster")
                 if model == "baseline-prefetch":
                     for field in ("peer_queries", "cluster_queries", "records_transferred", "manager_queries"):
                         self.assertEqual(result["forwarder"][field], 0)
+                    self.assertGreater(result["forwarder"]["prefetch_local_advice_runs"], 0)
+                    self.assertEqual(result["manager"]["prefetch_advice_runs"], 0)
             output = Path(folder) / "report"
             report_main([folder, "--output-dir", str(output)])
             report = json.loads((output / "summary.json").read_text())
@@ -117,6 +120,21 @@ class PrefetchAblationTests(unittest.TestCase):
             candidate = report["models"]["ReDNS-prefetch"]["average_latency_ms"]
             self.assertAlmostEqual(gains["average_latency_ms_reduction"], 1 - candidate / reference)
             self.assertTrue((output / "report.md").exists())
+            for row in report["models"].values():
+                self.assertLessEqual(row["prefetch_fraction_of_reported_demand"], cfg["prefetch"]["budget_ratio"])
+            # Reports from before demand-funded budgets remain readable.
+            for relative in manifest["results"].values():
+                path = Path(folder) / relative
+                old = json.loads(path.read_text())
+                old.pop("prefetch_scope")
+                old["manager"] = {key: value for key, value in old["manager"].items()
+                                  if not key.startswith("prefetch_budget_")}
+                path.write_text(json.dumps(old))
+            manifest["common_config"]["prefetch"].pop("budget_ratio")
+            (Path(folder) / "comparison.json").write_text(json.dumps(manifest))
+            report_main([folder, "--output-dir", str(output)])
+            legacy = json.loads((output / "summary.json").read_text())
+            self.assertIsNone(legacy["models"]["baseline-prefetch"]["prefetch_fraction_of_reported_demand"])
 
 
 if __name__ == "__main__":

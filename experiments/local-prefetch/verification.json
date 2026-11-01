@@ -1,0 +1,14 @@
+{
+  "tests_passed": 211,
+  "unchanged_deterministic_cases": [
+    "ReDNS-prefetch/lru",
+    "ReDNS-prefetch/random",
+    "ReDNS/lru",
+    "ReDNS/random",
+    "baseline/lru",
+    "baseline/random"
+  ],
+  "result_directory": "res/20261101-4",
+  "source_fingerprint_sha256": "f6555578254925aad291973f069252afd8235d6d3cc28a743b0dd099118571cf",
+  "budget_ratio": 0.15
+}

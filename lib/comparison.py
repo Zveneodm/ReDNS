@@ -43,7 +43,8 @@ def _summary(result):
               "cluster_hits", "wall_run_seconds")
     row = {key: result[key] for key in fields}
     for key in ("prefetch_authoritative_queries", "authoritative_queries_total",
-                "cooperation_enabled", "prefetch_enabled"):
+                "cooperation_enabled", "prefetch_enabled", "prefetch_scope",
+                "prefetch_budget_scope", "prefetch_budget_basis"):
         if key in result:
             row[key] = result[key]
     if "forwarder" in result:
