@@ -2,6 +2,8 @@
 
 `prefetch` 分支新增集群预取模型及三组正式对照，机制、参数与运行方法见 [PREFETCH.md](PREFETCH.md)。原有两模型入口继续保留。
 
+当前 `config.json` 的 `prefetch.budget_ratio=0.15` 表示每个集群累计每 100 次到达 forwarder 的前台查询提供 15 次预取额度。`max_inflight_per_forwarder=8` 只限制同时未完成的任务，每轮预取次数不再固定限制为 8。
+
 ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供三种模型：
 
 - **baseline**：client 和 forwarder 各自维护普通缓存，forwarder 未命中就查询权威服务器。

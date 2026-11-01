@@ -1,6 +1,7 @@
 """Aggregate node counters and verify a fully drained experiment."""
 
 from collections import Counter
+from fractions import Fraction
 
 
 RATES = {"hit_rate", "transfer_use_rate", "transfer_waste_rate"}
@@ -28,6 +29,20 @@ def validate_results(result):
 
     client, forwarder = result["client"], result["forwarder"]
     manager = result["manager"]
+    if "budget_ratio" in result["config"].get("prefetch", {}):
+        equal(forwarder["prefetch_budget_demand_reported"], manager["prefetch_budget_demand"],
+              "prefetch budget demand flow")
+        ratio = Fraction(str(result["config"]["prefetch"]["budget_ratio"]))
+        for row in result["managers"]:
+            allowance = row["prefetch_budget_demand"] * ratio.numerator // ratio.denominator
+            equal(row["prefetch_budget_allowance"], allowance, "cluster prefetch allowance")
+            spent = row["prefetch_budget_reserved"] - row["prefetch_budget_refunded"]
+            if not 0 <= spent <= allowance:
+                raise RuntimeError("cluster prefetch budget exceeded")
+        equal(manager["prefetch_budget_reserved"] - manager["prefetch_budget_refunded"],
+              forwarder["prefetch_started"], "prefetch credit outcomes")
+        if manager["prefetch_budget_demand"] > forwarder["queries"]:
+            raise RuntimeError("prefetch budget includes non-foreground demand")
     equal(forwarder["prefetch_reports_sent"], manager["prefetch_reports_received"], "prefetch reports")
     equal(forwarder["prefetch_observations_sent"], manager["prefetch_observations_received"],
           "prefetch observations")

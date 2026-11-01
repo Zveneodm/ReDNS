@@ -46,6 +46,9 @@ def _summary(result):
     if "forwarder" in result:
         row["prefetch"] = {key: value for key, value in result["forwarder"].items()
                            if key.startswith("prefetch_")}
+    if "manager" in result:
+        row["prefetch_budget"] = {key: value for key, value in result["manager"].items()
+                                  if key.startswith("prefetch_budget_")}
     return row
 
 

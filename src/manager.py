@@ -9,6 +9,8 @@ MANAGER_FIELDS = (
     "feedback_received", "feedback_applied", "feedback_ignored",
     "prefetch_reports_received", "prefetch_observations_received",
     "prefetch_advice_runs", "prefetch_advised", "prefetch_tasks_sent",
+    "prefetch_budget_demand", "prefetch_budget_allowance",
+    "prefetch_budget_reserved", "prefetch_budget_refunded", "prefetch_budget_blocked",
 )
 
 

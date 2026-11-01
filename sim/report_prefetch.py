@@ -44,6 +44,8 @@ def summarize(directory):
             max_lag_seconds=result["timing_validation"]["max_lag_seconds"],
             overrun_seconds=result["timing_validation"]["overrun_seconds"],
             ipc_messages=result["ipc_messages_sent"],
+            prefetch_budget={key: value for key, value in result["manager"].items()
+                             if key.startswith("prefetch_budget_")},
         )
         del result
     return manifest, summaries

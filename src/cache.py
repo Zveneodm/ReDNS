@@ -23,6 +23,7 @@ STAT_FIELDS = (
     "manager_queries", "manager_directory_hits", "manager_directory_misses",
     "manager_updates_sent", "manager_feedback_sent",
     "prefetch_reports_sent", "prefetch_observations_sent",
+    "prefetch_budget_demand_reported",
     "prefetch_tasks_received", "prefetch_started", "prefetch_completed",
     "prefetch_skipped", "prefetch_stored", "prefetch_records_used",
     "records_transferred", "records_received", "transfers_accepted",

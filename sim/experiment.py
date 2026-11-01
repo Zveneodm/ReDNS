@@ -62,6 +62,12 @@ def run_experiment(run_simulation, label, result_filename, argv=None):
         print(f"{layer}: queries={stats['queries']}, hits={stats['hits']}, "
               f"misses={stats['misses']}, hit_rate={stats['hit_rate']:.2%}")
     print(f"authoritative_queries={results['authoritative_queries']}")
+    if results["experiment"] == "ReDNS-prefetch":
+        budget = results["manager"]
+        print(f"prefetch_budget_ratio={config['prefetch']['budget_ratio']:g}, "
+              f"budget_demand={budget['prefetch_budget_demand']}, "
+              f"budget_allowance={budget['prefetch_budget_allowance']}, "
+              f"prefetch_queries={results['prefetch_authoritative_queries']}")
     print(f"successful_reverse_queries={results['successful_reverse_queries']}")
     print(f"manager_queries={results['manager_queries']}, "
           f"manager_directory_hits={results['manager_directory_hits']}, "

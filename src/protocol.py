@@ -160,7 +160,7 @@ class DNSProtocol(PrefetchProtocol, ABC):
         self._send(role, ("query", self.endpoint or self.role, token, target, domain, fill, measure, requester))
 
     def _query(self, node_id, domain, fill, measure, done, *, requester=None):
-        done = self._demand_started(node_id, domain, done)
+        done = self._demand_started(node_id, domain, done, measure=measure)
         if self.role == "authority":
             record = self.authority.lookup(domain, measure=measure)
             done((record.expires_at, record.auth_ttl, 0.0))

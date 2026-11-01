@@ -69,6 +69,10 @@ class WorkerLayout:
             return self.name("manager", message[3])
         if kind == "prefetch_result":
             return self.owner("manager", message[1], message[3])
+        if kind == "prefetch_dispatch":
+            return self.owner("manager", message[1], message[3])
+        if kind in ("prefetch_candidates", "prefetch_budget_result"):
+            return self.name("manager", message[1] % self.counts["manager"])
         if kind == "prefetch_task":
             return self.owner("forwarder", message[1])
         if kind == "prefetch_query":

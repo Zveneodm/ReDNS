@@ -1,0 +1,185 @@
+{
+  "purpose": "Short multi-cluster integration validation, not a rerun of the original 200+600 second experiment.",
+  "common_config": {
+    "seed": 42,
+    "time_scale": 1,
+    "min_time_scale": 0.0001,
+    "max_in_flight": 128,
+    "calibration_requests": 1000,
+    "timing": {
+      "max_mean_lag_seconds": 0.01,
+      "max_window_lag_seconds": 0.05,
+      "consecutive_lag_windows": 3,
+      "max_overrun_seconds": 0.1,
+      "probe_warm_up_seconds": 2,
+      "probe_duration_seconds": 3,
+      "max_attempts": 4,
+      "scale_multiplier": 2.0,
+      "auto_initial_time_scale": 2.0
+    },
+    "pin_cpu": true,
+    "workers": {
+      "client": 2,
+      "forwarder": 3,
+      "manager": 2
+    },
+    "prefetch": {
+      "report_seconds": 0.25,
+      "history_seconds": 30,
+      "advice_seconds": 1,
+      "alpha": 1,
+      "beta": 0,
+      "gamma": 1,
+      "epsilon": null,
+      "zeta": null,
+      "budget_ratio": 0.15,
+      "max_inflight_per_forwarder": 8
+    },
+    "record_wall_latencies": true,
+    "warm_up_seconds": 4,
+    "duration_seconds": 12,
+    "queries_per_second": 600,
+    "num_clients": 300,
+    "num_forwarders": 10,
+    "forwarder_cluster_size": 5,
+    "client_cache_size": 8,
+    "forwarder_cache_size": 20,
+    "replacement_policy": "lru",
+    "num_domains": 1000,
+    "ttl_range": [
+      30,
+      300
+    ],
+    "ttl_distribution": {
+      "values": [
+        2,
+        6,
+        30
+      ],
+      "probabilities": [
+        0.3,
+        0.4,
+        0.3
+      ]
+    },
+    "query_distribution": "zipf",
+    "zipf_alpha": 1.01,
+    "regional_preferences": {
+      "enabled": true,
+      "region_zipf_alpha": 1.15,
+      "client_zipf_alpha": 1.5,
+      "shared_rank_count": 128
+    },
+    "output_dir": "res",
+    "client_forwarder_RTT": 1,
+    "forwarder_forwarder_RTT": 2,
+    "forwarder_manager_RTT": 1,
+    "forwarder_authoritative_RTT": 110
+  },
+  "source_fingerprint_sha256": "3c25382c210326e7ac7c25d0b09f07030307a4cc437f3c326745d8d0c2801bb1",
+  "results": {
+    "baseline": "run-e2f4f695a458/baseline_results.json",
+    "ReDNS": "run-e2f4f695a458/ReDNS_results.json",
+    "ReDNS-prefetch": "run-e2f4f695a458/ReDNS-prefetch_results.json"
+  },
+  "models": {
+    "baseline": {
+      "total_queries": 7135,
+      "warm_up_queries": 2404,
+      "average_latency_ms": 45.17337070777856,
+      "average_wall_latency_ms": 0.3682663390329384,
+      "authoritative_queries": 2895,
+      "prefetch_authoritative_queries": 0,
+      "authoritative_queries_total": 2895,
+      "workload_fingerprint_sha256": "24b272a2b642eced03e3b5840a87d0a55671fe0c9f9d66218582bd7038afe86a",
+      "ttl_fingerprint_sha256": "fcac66e7fedd96e612efc03c8d5822be7b35ec374931493c3295c119494b25c1",
+      "timing_valid": true,
+      "actual_time_scale": 1,
+      "prefetch_budget": {
+        "prefetch_budget_demand": 0,
+        "prefetch_budget_allowance": 0,
+        "prefetch_budget_reserved": 0,
+        "prefetch_budget_refunded": 0,
+        "prefetch_budget_blocked": 0
+      },
+      "clusters": []
+    },
+    "ReDNS": {
+      "total_queries": 7135,
+      "warm_up_queries": 2404,
+      "average_latency_ms": 27.205886475122636,
+      "average_wall_latency_ms": 0.44454647288016746,
+      "authoritative_queries": 1686,
+      "prefetch_authoritative_queries": 0,
+      "authoritative_queries_total": 1686,
+      "workload_fingerprint_sha256": "24b272a2b642eced03e3b5840a87d0a55671fe0c9f9d66218582bd7038afe86a",
+      "ttl_fingerprint_sha256": "fcac66e7fedd96e612efc03c8d5822be7b35ec374931493c3295c119494b25c1",
+      "timing_valid": true,
+      "actual_time_scale": 1,
+      "prefetch_budget": {
+        "prefetch_budget_demand": 0,
+        "prefetch_budget_allowance": 0,
+        "prefetch_budget_reserved": 0,
+        "prefetch_budget_refunded": 0,
+        "prefetch_budget_blocked": 0
+      },
+      "clusters": [
+        {
+          "cluster_id": 0,
+          "prefetch_budget_demand": 0,
+          "prefetch_budget_allowance": 0,
+          "prefetch_budget_reserved": 0,
+          "prefetch_budget_refunded": 0,
+          "prefetch_budget_blocked": 0
+        },
+        {
+          "cluster_id": 1,
+          "prefetch_budget_demand": 0,
+          "prefetch_budget_allowance": 0,
+          "prefetch_budget_reserved": 0,
+          "prefetch_budget_refunded": 0,
+          "prefetch_budget_blocked": 0
+        }
+      ]
+    },
+    "ReDNS-prefetch": {
+      "total_queries": 7135,
+      "warm_up_queries": 2404,
+      "average_latency_ms": 22.774211632796074,
+      "average_wall_latency_ms": 0.4636887174491928,
+      "authoritative_queries": 1391,
+      "prefetch_authoritative_queries": 598,
+      "authoritative_queries_total": 1989,
+      "workload_fingerprint_sha256": "24b272a2b642eced03e3b5840a87d0a55671fe0c9f9d66218582bd7038afe86a",
+      "ttl_fingerprint_sha256": "fcac66e7fedd96e612efc03c8d5822be7b35ec374931493c3295c119494b25c1",
+      "timing_valid": true,
+      "actual_time_scale": 1,
+      "prefetch_budget": {
+        "prefetch_budget_demand": 4019,
+        "prefetch_budget_allowance": 602,
+        "prefetch_budget_reserved": 647,
+        "prefetch_budget_refunded": 49,
+        "prefetch_budget_blocked": 68
+      },
+      "clusters": [
+        {
+          "cluster_id": 0,
+          "prefetch_budget_demand": 2102,
+          "prefetch_budget_allowance": 315,
+          "prefetch_budget_reserved": 339,
+          "prefetch_budget_refunded": 26,
+          "prefetch_budget_blocked": 28
+        },
+        {
+          "cluster_id": 1,
+          "prefetch_budget_demand": 1917,
+          "prefetch_budget_allowance": 287,
+          "prefetch_budget_reserved": 308,
+          "prefetch_budget_refunded": 23,
+          "prefetch_budget_blocked": 40
+        }
+      ]
+    }
+  },
+  "tests_passed": 178
+}

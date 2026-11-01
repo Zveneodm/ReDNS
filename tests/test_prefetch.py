@@ -66,7 +66,7 @@ class PrefetchProtocolTests(unittest.TestCase):
         return ProtocolHarness("ReDNS-prefetch", **{
             "forwarder_cluster_size": 2, "client_cache_size": 0,
             "ttl_range": [2, 2], "duration_seconds": 5,
-            "prefetch": {"report_seconds": 1, "advice_seconds": 1}, **overrides})
+            "prefetch": {"report_seconds": 1, "advice_seconds": 1, "budget_ratio": 1}, **overrides})
 
     def tick(self, harness, when):
         harness.clock.advance_to(when)

@@ -12,7 +12,7 @@ class PrefetchAuditTests(unittest.TestCase):
         return ProtocolHarness("ReDNS-prefetch", **{
             "num_forwarders": 2, "forwarder_cluster_size": 2,
             "duration_seconds": 20, "client_cache_size": 0,
-            "prefetch": {"report_seconds": 1, "advice_seconds": 5}, **overrides})
+            "prefetch": {"report_seconds": 1, "advice_seconds": 5, "budget_ratio": 1}, **overrides})
 
     def tick(self, harness, when):
         harness.clock.advance_to(when)
@@ -31,7 +31,9 @@ class PrefetchAuditTests(unittest.TestCase):
 
     def test_skipped_fetch_does_not_consume_unsuccessful_advice_budget(self):
         harness = self.harness(forwarder_cache_size=0,
-                               prefetch={"report_seconds": 1, "advice_seconds": 1, "zeta": 0})
+                               prefetch={"report_seconds": 1, "advice_seconds": 1, "zeta": 0,
+                                         "budget_ratio": 1})
+        harness.query(0, 8)  # Earn a credit independently of the seeded forecast.
         manager_layer = harness.layers["manager"]
         tracker = manager_layer.prefetchers[0]
         for when in (0, 0.5, 0.9):
@@ -45,7 +47,8 @@ class PrefetchAuditTests(unittest.TestCase):
         self.assertEqual(tracker.tracking[7].failed_advice, 0)
 
     def test_completed_fetch_counts_as_an_advice(self):
-        harness = self.harness(prefetch={"report_seconds": 1, "advice_seconds": 1})
+        harness = self.harness(prefetch={"report_seconds": 1, "advice_seconds": 1, "budget_ratio": 1})
+        harness.query(0, 8)
         tracker = harness.layers["manager"].prefetchers[0]
         for when in (0, 0.5, 0.9):
             tracker.observe(7, when, 2, 2)
