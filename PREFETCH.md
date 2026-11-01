@@ -30,4 +30,6 @@ manager 在 `advice_seconds` 对应的固定模拟时间边界生成建议，由
 
 结果保留 `authoritative_queries` 作为前台回源计数，新增 `prefetch_authoritative_queries` 和两者之和 `authoritative_queries_total`。前台 `queries/hits/misses` 不包含后台预取。`forwarder.prefetch_*` 提供任务、跳过、完成、存入与实际使用数量；使用量归属预取接受时的预热/正式阶段，邻居查询也可使其成为已使用。该使用计数跟踪预取落点的缓存条目；逐出后转存到 client 的后续使用计入转存指标，不再计入原条目的预取使用计数。未使用数量不能直接等同浪费，因为实验结束时可能仍有效。
 
+**主时延 `average_latency_ms` 只累计用户前台查询实际经过的配置 RTT，除以前台请求数。** 热度统计、列表生成、后台调度、预取回源和目录通知的工作不直接计入这个时延，也不增加它的样本数。命中预取记录时仅计前台获取该记录所经过的链路；例如命中直属 forwarder 仍计 client↔forwarder 的 1 ms，但不计此前预取的 110 ms 权威 RTT。`average_wall_latency_ms` 是独立的前台进程/IPC 实耗诊断，可受后台资源竞争影响，不与主时延相加，也不把它作为预取自身耗时收费。上次三组主时延的逐链路核对见 `experiments/prefetch/latency_check.json`，复跑命令为 `python3 experiments/prefetch/check_latency.py`。
+
 三组对照共用积压检查、指纹检查、时间比例、CPU 池和公共进程分配。任一组失败则整轮无效、提高共同比例后全部从空缓存重跑，三份结果同时通过后才发布。正式报告保留在 `experiments/prefetch/`，大结果保留在 Git 忽略的 `res/prefetch/`。
