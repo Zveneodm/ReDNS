@@ -13,13 +13,15 @@ from src.manager import ClusterManager, new_manager_stats
 from src.models import AuthoritativeServer, BaselineForwarder, Client, ReDNSForwarder
 from src.records import Record
 from src.replacement import replacement_seed
+from src.prefetch_protocol import PrefetchProtocol
 
 
-class DNSProtocol(ABC):
-    def __init__(self, role, model, config, clock, *, ttls=(), node_ids=None, endpoint=None):
+class DNSProtocol(PrefetchProtocol, ABC):
+    def __init__(self, role, model, config, clock, *, ttls=(), node_ids=None, endpoint=None,
+                 manager_shards=1, manager_shard=0):
         if role not in ("client", "forwarder", "authority", "manager"):
             raise ValueError(f"unknown role: {role}")
-        if model not in ("baseline", "ReDNS"):
+        if model not in ("baseline", "ReDNS", "ReDNS-prefetch"):
             raise ValueError(f"unknown model: {model}")
         self.role, self.model, self.cfg, self.clock = role, model, config, clock
         self.endpoint = endpoint
@@ -37,7 +39,7 @@ class DNSProtocol(ABC):
         self.region_announced = {}
         self.region_version = 0
         if role == "manager":
-            if model != "ReDNS":
+            if model == "baseline":
                 raise ValueError("baseline does not have cluster managers")
             for first in range(0, config["num_forwarders"], self.clusters.size):
                 cluster_id = first // self.clusters.size
@@ -52,7 +54,7 @@ class DNSProtocol(ABC):
             count = config["num_clients"] if role == "client" else config["num_forwarders"]
             size = config["client_cache_size"] if role == "client" else config["forwarder_cache_size"]
             node_class = (Client if role == "client" else
-                          ReDNSForwarder if model == "ReDNS" else BaselineForwarder)
+                          ReDNSForwarder if model != "baseline" else BaselineForwarder)
             self.node_ids = range(count) if node_ids is None else node_ids
             self.nodes = [None] * count
             self.formal_stats = [None] * count
@@ -61,7 +63,7 @@ class DNSProtocol(ABC):
                                   replacement_policy=config["replacement_policy"],
                                   replacement_seed=replacement_seed(config["seed"], role, index))
                 node._runtime_measure = False
-                if model == "ReDNS":
+                if model != "baseline":
                     if role == "client":
                         node.on_store = partial(self._cache_stored, index)
                         node.on_remove = partial(self._cache_removed, index)
@@ -71,6 +73,7 @@ class DNSProtocol(ABC):
                         node.on_remove = partial(self._region_removed, index)
                 self.nodes[index] = node
                 self.formal_stats[index] = node.stats
+        self._init_prefetch(manager_shards, manager_shard)
 
     @abstractmethod
     def _send(self, role, message):
@@ -113,7 +116,7 @@ class DNSProtocol(ABC):
                                domain, deadline, self.region_version, node._runtime_measure))
 
     def _select_manager(self, cluster_id, measure):
-        if self.role != "manager" or self.model != "ReDNS":
+        if self.role != "manager" or self.model == "baseline":
             raise ValueError("directory messages must be handled by cluster managers")
         manager = self.managers[cluster_id]
         if measure:
@@ -157,6 +160,7 @@ class DNSProtocol(ABC):
         self._send(role, ("query", self.endpoint or self.role, token, target, domain, fill, measure, requester))
 
     def _query(self, node_id, domain, fill, measure, done, *, requester=None):
+        done = self._demand_started(node_id, domain, done)
         if self.role == "authority":
             record = self.authority.lookup(domain, measure=measure)
             done((record.expires_at, record.auth_ttl, 0.0))
@@ -312,11 +316,13 @@ class DNSProtocol(ABC):
 
     def _serve_cluster(self, origin, token, node_id, domain, measure):
         """A helper checks itself and its children, without neighbors/authority."""
-        if (self.role != "forwarder" or self.model != "ReDNS"
+        if (self.role != "forwarder" or self.model == "baseline"
                 or not self.clusters.can_query(origin, node_id)):
             raise ValueError("cluster queries must stay between distinct ReDNS forwarders in one group")
         node = self._select(node_id, measure)
         node.stats["cluster_queries_received"] += 1
+        if self.prefetch_enabled:
+            self.prefetch_load[node_id] += 1
 
         def reply(answer, helper_cost):
             current = self._select(node_id, measure)
@@ -351,6 +357,10 @@ class DNSProtocol(ABC):
                                   record.auth_ttl, node._runtime_measure))
 
     def handle_message(self, message):
+        if message[0].startswith("prefetch_"):
+            if not self.prefetch_enabled or not self._prefetch_message(message):
+                raise ValueError("unexpected prefetch message")
+            return
         kind = message[0]
         if kind == "query":
             _, sender, token, node, domain, fill, measure, requester = message

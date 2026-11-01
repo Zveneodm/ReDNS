@@ -51,7 +51,10 @@ class _Layer(DNSProtocol):
                                 k=config["num_domains"]) if distribution is not None else
                     [rng.randint(*config["ttl_range"]) for _ in range(config["num_domains"])])
         super().__init__(role, model, config, RealtimeClock(), ttls=ttls,
-                         node_ids=owned_ids, endpoint=endpoint)
+                         node_ids=owned_ids, endpoint=endpoint,
+                         manager_shards=1 if layout is None else layout.counts["manager"],
+                         manager_shard=0 if layout is None or role != "manager" else
+                         layout.workers[endpoint]["shard"])
         if role == "authority":
             self.ttl_fingerprint = sha256(json.dumps(ttls, separators=(",", ":")).encode()).hexdigest()
         if self.arrival_driver:
@@ -173,7 +176,7 @@ class _Layer(DNSProtocol):
             self.control.send(("progress", when))
 
     def _status(self):
-        return dict(pending=len(self.pending), outbox=len(self.outbox), sent=self.sent,
+        return dict(pending=len(self.pending) + len(self.prefetch_queue), outbox=len(self.outbox), sent=self.sent,
                     received=self.received, last_activity_ns=self.last_activity_ns)
 
     def _snapshot(self):
@@ -181,6 +184,7 @@ class _Layer(DNSProtocol):
             return self._arrival_snapshot()
         if self.role == "authority":
             return {"authoritative_queries": self.authority.queries,
+                    "prefetch_authoritative_queries": self.authority.prefetch_queries,
                     "ttl_fingerprint_sha256": self.ttl_fingerprint}
         if self.role == "manager":
             rows = [{"cluster_id": cluster_id, "forwarders": sorted(manager.members),
@@ -198,7 +202,7 @@ class _Layer(DNSProtocol):
                 row.update(client_id=index, forwarder_id=index % self.cfg["num_forwarders"])
             elif self.role == "forwarder":
                 row["forwarder_id"] = index
-                if self.model == "ReDNS":
+                if self.model != "baseline":
                     row["cluster_id"] = index // self.cfg["forwarder_cluster_size"]
             rows.append(row)
         result = {self.role: aggregate(rows)}
@@ -277,6 +281,8 @@ class _Layer(DNSProtocol):
                 self._message(message)
                 worked = True
             self._drive()
+            if self.started:
+                self.prefetch_tick()
             self._flush()
             if worked or self.outbox:
                 continue
@@ -322,13 +328,13 @@ def _worker(endpoint, model, config, inboxes, control, cpu, layout, observation=
 def available_cpu_pool(config):
     """Reserve the same role slots for both models, including the manager slot."""
     cpus = sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else []
-    return tuple(cpus[:len(WorkerLayout(config, "ReDNS").workers)]) if config["pin_cpu"] else ()
+    return tuple(cpus[:len(WorkerLayout(config, "ReDNS-prefetch").workers)]) if config["pin_cpu"] else ()
 
 
 class RealtimeSimulation:
     def __init__(self, config, model="baseline", *, observation=None,
                  cpu_pool=None, abort_on_overload=False):
-        if model not in ("baseline", "ReDNS"):
+        if model not in ("baseline", "ReDNS", "ReDNS-prefetch"):
             raise ValueError("unknown model")
         self.config = validate_config(config)
         if self.config["time_scale"] == "auto":
@@ -398,7 +404,7 @@ class RealtimeSimulation:
         try:
             # Baseline leaves the manager slots idle; common owners receive
             # the same CPU even when their worker counts differ from one.
-            canonical = list(WorkerLayout(cfg, "ReDNS").workers)
+            canonical = list(WorkerLayout(cfg, "ReDNS-prefetch").workers)
             for role in self.endpoints:
                 index = canonical.index(role)
                 parent, child = context.Pipe()
@@ -457,6 +463,8 @@ class RealtimeSimulation:
                 observed_simulated_seconds=(stop_ns - epoch) / (scale * 1e9),
             )
             result.update(merge_snapshots(cfg, self.model, snapshots))
+            result["authoritative_queries_total"] = (result["authoritative_queries"] +
+                                                     result["prefetch_authoritative_queries"])
             if self.observation is not None:
                 from sim.retention import merge_retention
 

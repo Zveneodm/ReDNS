@@ -28,6 +28,16 @@ def validate_results(result):
 
     client, forwarder = result["client"], result["forwarder"]
     manager = result["manager"]
+    equal(forwarder["prefetch_reports_sent"], manager["prefetch_reports_received"], "prefetch reports")
+    equal(forwarder["prefetch_observations_sent"], manager["prefetch_observations_received"],
+          "prefetch observations")
+    equal(manager["prefetch_tasks_sent"], forwarder["prefetch_tasks_received"], "prefetch tasks")
+    equal(forwarder["prefetch_tasks_received"], forwarder["prefetch_started"] +
+          forwarder["prefetch_skipped"], "prefetch task outcomes")
+    equal(forwarder["prefetch_started"], forwarder["prefetch_completed"], "prefetch completion")
+    equal(forwarder["prefetch_started"], result["prefetch_authoritative_queries"], "prefetch authority flow")
+    equal(result["authoritative_queries_total"], result["authoritative_queries"] +
+          result["prefetch_authoritative_queries"], "total authority traffic")
     equal(forwarder["manager_queries"], manager["queries"], "manager lookup flow")
     equal(forwarder["manager_directory_hits"], manager["directory_hits"], "manager hit flow")
     equal(forwarder["manager_directory_misses"], manager["directory_misses"], "manager miss flow")

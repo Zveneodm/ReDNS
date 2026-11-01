@@ -15,6 +15,7 @@ from sim.timing import SimulationOverload
 
 
 MODELS = ("baseline", "ReDNS")
+PREFETCH_MODELS = (*MODELS, "ReDNS-prefetch")
 
 
 def source_fingerprint():
@@ -38,12 +39,19 @@ def _summary(result):
               "observed_simulated_seconds", "average_latency_ms", "average_wall_latency_ms",
               "authoritative_queries", "successful_reverse_queries", "manager_queries",
               "cluster_hits", "wall_run_seconds")
-    return {key: result[key] for key in fields}
+    row = {key: result[key] for key in fields}
+    for key in ("prefetch_authoritative_queries", "authoritative_queries_total"):
+        if key in result:
+            row[key] = result[key]
+    if "forwarder" in result:
+        row["prefetch"] = {key: value for key, value in result["forwarder"].items()
+                           if key.startswith("prefetch_")}
+    return row
 
 
 def validate_pair(rows, expected_config, cpu_pool):
     """Accept a pair only when its timing and controlled inputs match exactly."""
-    first, second = (rows[model] for model in MODELS)
+    first = rows["baseline"]
     for model, row in rows.items():
         if not row["timing_valid"]:
             raise SimulationOverload(row["timing_validation"])
@@ -53,25 +61,26 @@ def validate_pair(rows, expected_config, cpu_pool):
             raise RuntimeError("paired run changed its clock scale")
         if row["cpu_pool"] != list(cpu_pool):
             raise RuntimeError("paired run changed its CPU pool")
-    for field in ("workload_fingerprint_sha256", "ttl_fingerprint_sha256",
-                  "warm_up_queries", "total_queries"):
-        if first[field] != second[field]:
-            raise RuntimeError(f"paired inputs differ: {field}")
     public = {name for name in first["workers"]
               if first["workers"][name].get("role", name) in (*ROLES, "driver")}
-    other = {name for name in second["workers"]
-             if second["workers"][name].get("role", name) in (*ROLES, "driver")}
-    if public != other:
-        raise RuntimeError("paired common worker ownership differs")
-    for name in public:
-        if first["workers"][name]["cpu"] != second["workers"][name]["cpu"]:
-            raise RuntimeError(f"paired CPU binding differs: {name}")
-        for field in ("role", "shard", "shards", "node_count"):
-            if first["workers"][name].get(field) != second["workers"][name].get(field):
-                raise RuntimeError(f"paired worker ownership differs: {name}.{field}")
+    for second in rows.values():
+        for field in ("workload_fingerprint_sha256", "ttl_fingerprint_sha256",
+                      "warm_up_queries", "total_queries"):
+            if first[field] != second[field]:
+                raise RuntimeError(f"paired inputs differ: {field}")
+        other = {name for name in second["workers"]
+                 if second["workers"][name].get("role", name) in (*ROLES, "driver")}
+        if public != other:
+            raise RuntimeError("paired common worker ownership differs")
+        for name in public:
+            if first["workers"][name]["cpu"] != second["workers"][name]["cpu"]:
+                raise RuntimeError(f"paired CPU binding differs: {name}")
+            for field in ("role", "shard", "shards", "node_count"):
+                if first["workers"][name].get(field) != second["workers"][name].get(field):
+                    raise RuntimeError(f"paired worker ownership differs: {name}.{field}")
 
 
-def run_comparison(config, output_dir, *, runner=None):
+def run_comparison(config, output_dir, *, runner=None, include_prefetch=False):
     """Probe both full protocols, then rerun both from empty caches at one rate.
 
     A failed formal trial invalidates the whole pair. The scale changes only
@@ -79,6 +88,7 @@ def run_comparison(config, output_dir, *, runner=None):
     comparison.json is an atomic pointer to that pair. Older pairs remain intact.
     """
     config = validate_config(config)
+    models = PREFETCH_MODELS if include_prefetch else MODELS
     limits = config["timing"]
     scale = (limits["auto_initial_time_scale"] if config["time_scale"] == "auto"
              else config["time_scale"])
@@ -113,7 +123,7 @@ def run_comparison(config, output_dir, *, runner=None):
         # traffic. A fast path with cache filling disabled cannot estimate this.
         probe_failed = False
         probe_rows = {}
-        for model in MODELS:
+        for model in models:
             print(f"Full-protocol pilot: {model}", flush=True)
             try:
                 result = trial(probe, model)
@@ -132,7 +142,7 @@ def run_comparison(config, output_dir, *, runner=None):
         with TemporaryDirectory(prefix=".trial-", dir=output_dir) as temporary:
             stage = Path(temporary)
             try:
-                for model in MODELS:
+                for model in models:
                     print(f"Fresh formal run: {model}", flush=True)
                     result = trial(cfg, model)
                     entry["runs"][model] = _summary(result)
@@ -150,7 +160,7 @@ def run_comparison(config, output_dir, *, runner=None):
             manifest = dict(schema_version=1, timing_valid=True, common_config=cfg,
                             actual_time_scale=scale, cpu_pool=list(cpu_pool),
                             source_fingerprint_sha256=source_hash, attempts=history,
-                            results={model: f"{run_name}/{model}_results.json" for model in MODELS},
+                            results={model: f"{run_name}/{model}_results.json" for model in models},
                             models=entry["runs"])
             write_results(stage / "manifest.json", manifest)
             os.replace(stage, output_dir / run_name)

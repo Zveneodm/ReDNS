@@ -22,6 +22,9 @@ STAT_FIELDS = (
     "cluster_child_queries", "cluster_child_hits", "cluster_child_misses",
     "manager_queries", "manager_directory_hits", "manager_directory_misses",
     "manager_updates_sent", "manager_feedback_sent",
+    "prefetch_reports_sent", "prefetch_observations_sent",
+    "prefetch_tasks_received", "prefetch_started", "prefetch_completed",
+    "prefetch_skipped", "prefetch_stored", "prefetch_records_used",
     "records_transferred", "records_received", "transfers_accepted",
     "transfer_duplicates", "transfer_expired_in_transit", "transfers_rejected_full",
     "transfer_hits", "transfer_records_used", "transfer_unused_expired",
@@ -42,6 +45,8 @@ class CacheEntry:
     transfer_stats: Optional[Counter] = None
     transfer_used: bool = False
     expiry_version: int = 0
+    prefetch_stats: Optional[Counter] = None
+    prefetch_used: bool = False
 
 
 class DNSCache:
@@ -91,6 +96,9 @@ class DNSCache:
             self.expiry.compact()
             return None
         self.cache.move_to_end(domain)
+        if foreground and entry.prefetch_stats is not None and not entry.prefetch_used:
+            entry.prefetch_used = True
+            entry.prefetch_stats["prefetch_records_used"] += 1
         if foreground and entry.transfer_stats is not None:
             self.stats["transfer_hits"] += 1
             if not entry.transfer_used:

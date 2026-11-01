@@ -28,6 +28,11 @@ DEFAULT_CONFIG = {
     },
     "pin_cpu": True,
     "workers": {"client": 1, "forwarder": 1, "manager": 1},
+    "prefetch": {
+        "report_seconds": 1.0, "history_seconds": 300.0, "advice_seconds": 5.0,
+        "alpha": 1, "beta": 0, "gamma": 1.0, "epsilon": None, "zeta": None,
+        "max_per_forwarder": 8,
+    },
     "record_wall_latencies": True,
     "warm_up_seconds": 0,
     "duration_seconds": 300,
@@ -64,6 +69,20 @@ def validate_config(config):
     if unknown:
         raise ValueError(f"unknown config fields: {', '.join(sorted(unknown))}")
     result = {**DEFAULT_CONFIG, **config}
+    prefetch = config.get("prefetch", {})
+    if not isinstance(prefetch, dict) or prefetch.keys() - DEFAULT_CONFIG["prefetch"].keys():
+        raise ValueError("prefetch must contain only supported fields")
+    result["prefetch"] = {**DEFAULT_CONFIG["prefetch"], **prefetch}
+    for name, value in result["prefetch"].items():
+        if name in ("alpha", "beta", "epsilon", "zeta", "max_per_forwarder"):
+            if name in ("epsilon", "zeta") and value is None:
+                continue
+            minimum = 1 if name in ("alpha", "max_per_forwarder") else 0
+            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+                raise ValueError(f"prefetch.{name} must be an integer >= {minimum}")
+        elif (isinstance(value, bool) or not isinstance(value, (int, float))
+              or not math.isfinite(value) or value <= 0):
+            raise ValueError(f"prefetch.{name} must be finite and positive")
     workers = config.get("workers", {})
     if not isinstance(workers, dict) or workers.keys() - DEFAULT_CONFIG["workers"].keys():
         raise ValueError("workers must contain only client, forwarder and manager counts")

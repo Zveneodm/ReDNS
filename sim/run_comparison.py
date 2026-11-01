@@ -18,6 +18,8 @@ def main(argv=None):
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--time-scale", type=_time_scale)
     parser.add_argument("--replacement-policy", choices=("lru", "random"))
+    parser.add_argument("--include-prefetch", action="store_true",
+                        help="Compare baseline, ReDNS and ReDNS-prefetch together")
     args = parser.parse_args(argv)
     try:
         cfg = load_config(args.config)
@@ -26,7 +28,7 @@ def main(argv=None):
         if args.replacement_policy is not None:
             cfg["replacement_policy"] = args.replacement_policy
         output = args.output_dir or PROJECT_ROOT / cfg["output_dir"] / "comparison"
-        manifest = run_comparison(cfg, output)
+        manifest = run_comparison(cfg, output, include_prefetch=args.include_prefetch)
     except (OSError, ValueError, RuntimeError) as exc:
         parser.error(str(exc))
     print(f"Accepted common time_scale={manifest['actual_time_scale']:g}")

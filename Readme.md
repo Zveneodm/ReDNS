@@ -1,9 +1,12 @@
 # ReDNS
 
-ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，仅比较两组模型：
+`prefetch` 分支新增集群预取模型及三组正式对照，机制、参数与运行方法见 [PREFETCH.md](PREFETCH.md)。原有两模型入口继续保留。
+
+ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供三种模型：
 
 - **baseline**：client 和 forwarder 各自维护普通缓存，forwarder 未命中就查询权威服务器。
 - **ReDNS**：forwarder 未命中后先查询直属 client 副本，再向本集群 manager 定位可用区域，并定向查询相应 forwarder；没有可用区域或已知候选均失败后查询权威服务器。
+- **ReDNS-prefetch**：在 ReDNS 上增加集群热度上报、manager 生成预取列表、低负载 forwarder 执行预取，以及按上报负载排序区域查询候选。用 `--include-prefetch` 启用三组对照。
 
 实验拓扑为 **client → forwarder → 权威服务器**，同集群 forwarder 可以互相查询缓存。每个 client 固定连接一个 forwarder，编号映射为 `client_id % num_forwarders`；副本目录只在所属 forwarder 内维护，集群外不相互查询。
 
@@ -67,7 +70,7 @@ python3 sim/run_baseline.py --config config.json --output res/baseline_results.j
 python3 sim/run_ReDNS.py --config config.json --output res/ReDNS_results.json
 ```
 
-进程数通过 `workers` 配置。当前配置使用 4 个 client 缓存进程、8 个 forwarder 缓存进程、2 个 manager 目录进程，加 1 个权威进程、1 个请求调度进程，共 16 个模拟进程，Linux / WSL 下绑定到 16 个可用逻辑 CPU。baseline 使用相同的 14 个公共进程及其 CPU，manager 的两个槽位空闲。父进程协调运行与收集结果，不计入这 16 个模拟进程。可用 CPU 不足时复用；client / forwarder 进程数不会超过各自节点数。
+进程数通过 `workers` 配置；`config.json` 省略该项，各角色默认 1 个进程。预取正式对照配置 `experiments/prefetch/config.json` 使用 2 个 client、4 个 forwarder、2 个 manager，加权威和请求调度各 1 个，共 10 个模拟进程。baseline 使用相同的公共进程及其 CPU，manager 槽位空闲。父进程协调运行与收集结果，不计入这些模拟进程。Linux / WSL 下可绑定 CPU；可用 CPU 不足时复用，client / forwarder 进程数不会超过各自节点数。
 
 client 和 forwarder 按 `节点 ID % 进程数` 分片，各节点缓存只有一个所有者。manager 按 `(集群 ID × 域名总数 + 域名 ID) % manager进程数` 分片，同一域名的更新、查询和失效反馈进入同一所有者；即使全部 forwarder 组成一个集群，也可以使用多个 manager 核。逻辑上的每集群一个 manager 及其查询范围保持不变。
 
@@ -99,15 +102,15 @@ manager 只保存 `域名 → {forwarder ID: (区域到期时间, 版本号)}`�
 
 邻居 client 命中会正常回填帮助方、原请求 forwarder 及请求 client，保持原绝对到期时间。后台转存仍只发给本 forwarder 的直属 client。邻居 RPC、manager 查询和目录更新都通过消息队列路由到目标所有者；即使两个节点恰好属于同一进程，也经过队列，不直接跨节点读取缓存。目录可能暂时漏报或滞后；目标会检查真实缓存，失效提示不会直接算作命中。
 
-旧版偏好学习、TTL 补足和主动刷新模型已移除；运行入口只提供 baseline 和 ReDNS。
+旧版偏好学习和 TTL 补足模型已移除；新增主动预取只在 `ReDNS-prefetch` 中启用。
 
 ## 配置
 
 完整默认值和校验见 [sim/config.py](sim/config.py)。未知字段和无效值会直接报错。
 
-当前 `config.json` 为 30,000 个 client、1,000 个 forwarder、全局平均 15,000 请求/模拟秒、预热 200 秒、正式窗口 600 秒。每个 client 与 forwarder 的缓存容量均为 1,000 条，域名总数为 1,000,000。
+当前 `config.json` 为 30,000 个 client、100 个 forwarder、全局平均 15,000 请求/模拟秒、预热 200 秒、正式窗口 600 秒。每个 client 与 forwarder 的缓存容量均为 1,000 条，域名总数为 1,000,000。
 
-当前集群大小为 100，形成 10 个互不跨界查询的集群和对应的 10 个逻辑 manager。省略 `forwarder_cluster_size` 时默认 1；baseline 忽略集群协作设置。
+当前集群大小为 100，形成 1 个集群和对应的逻辑 manager。省略 `forwarder_cluster_size` 时默认 1；baseline 忽略集群协作设置。预取实现及回归测试也覆盖多个独立集群和单节点集群。
 
 | 配置项 | 含义 |
 | --- | --- |
@@ -132,7 +135,7 @@ manager 只保存 `域名 → {forwarder ID: (区域到期时间, 版本号)}`�
 | `timing` | 积压判定阈值、共同试跑长度和重试参数，见下文 |
 | `max_in_flight` | 未完成的客户端请求上限；积压请求保留，不丢弃 |
 | `pin_cpu` | 是否绑定逻辑 CPU |
-| `workers` | client / forwarder / manager 进程数，当前 4 / 8 / 2；省略各项时默认 1 |
+| `workers` | client / forwarder / manager 进程数；省略各项时默认 1 |
 | `record_wall_latencies` | 是否保存逐请求进程往返耗时；关闭后仍有均值和最大值 |
 | `output_dir` | 结果目录，相对项目根目录 |
 
