@@ -2,8 +2,8 @@
 
 import unittest
 
-from sim.config import validate_config
-from src.prefetch import Forestall
+from lib.config import validate_config
+from src.auxiliary.prefetch import Forestall
 from tests.helpers import ProtocolHarness
 
 

@@ -5,7 +5,7 @@ from bisect import bisect_right
 import math
 import random
 
-from sim.preferences import HierarchicalZipf
+from sim.traffic.preferences import HierarchicalZipf
 
 
 class Workload:

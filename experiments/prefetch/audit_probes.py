@@ -7,8 +7,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from sim.config import validate_config
-from src.prefetch import Forestall
+from lib.config import validate_config
+from src.auxiliary.prefetch import Forestall
 from tests.helpers import ProtocolHarness
 
 

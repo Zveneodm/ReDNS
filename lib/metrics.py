@@ -2,6 +2,7 @@
 
 from collections import Counter
 from fractions import Fraction
+from src.variants import BASELINE_MODELS
 
 
 RATES = {"hit_rate", "transfer_use_rate", "transfer_waste_rate"}
@@ -72,6 +73,12 @@ def validate_results(result):
     equal(client["queries"], result["total_queries"], "client request count")
     equal(client["upstream_queries"], forwarder["queries"], "client -> forwarder flow")
     equal(forwarder["upstream_queries"], result["authoritative_queries"], "forwarder -> authority flow")
+    if "request_authority_queries" in result:
+        flags = result["request_authority_queries"]
+        equal(len(flags), result["total_queries"], "authority trace length")
+        if any(flag not in (0, 1) for flag in flags):
+            raise RuntimeError("authority trace flags must be 0 or 1")
+        equal(sum(flags), result["authoritative_queries"], "authority trace count")
     equal(forwarder["peer_queries"] + forwarder["cluster_child_queries"],
           client["peer_queries_received"], "peer query flow")
     equal(forwarder["peer_hits"] + forwarder["cluster_child_hits"],
@@ -90,8 +97,14 @@ def validate_results(result):
     equal(client["directory_removes_sent"], forwarder["directory_removes_received"], "remove notices")
     for name, row in (("client", client), ("forwarder", forwarder)):
         equal(row["queries"], row["hits"] + row["misses"], f"{name} cache decisions")
-        equal(row["upstream_queries"], row["misses"] - row["peer_hits"] - row["cluster_hits"],
+        equal(row["upstream_queries"], row["misses"] - row["peer_hits"] - row["cluster_hits"]
+              - row.get("coalesced_queries", 0),
               f"{name} upstream count")
+        equal(row.get("coalesced_queries", 0), sum(row.get(f"coalesced_{source}_waits", 0)
+              for source in ("authority", "peer", "cluster_forwarder", "cluster_client")),
+              f"{name} coalesced outcomes")
+        if row.get("coalesced_wait_latency_ms", 0) < 0:
+            raise RuntimeError("coalesced wait latency must be non-negative")
         equal(row["peer_queries"], row["peer_hits"] + row["peer_misses"], f"{name} probes")
         equal(row["cluster_queries"], row["cluster_hits"] + row["cluster_misses"], f"{name} cluster probes")
         equal(row["cluster_hits"], row["cluster_forwarder_hits"] + row["cluster_client_hits"],
@@ -108,10 +121,12 @@ def validate_results(result):
     for row in result["clients"] + result["forwarders"]:
         if not 0 <= row["live_cache_entries"] <= row["cache_entries"] <= row["cache_size"]:
             raise RuntimeError("cache capacity invariant failed")
-        if not 0 <= row["successful_reverse_queries"] <= row["peer_hits"] + row["cluster_client_hits"]:
+        client_sources = (row["peer_hits"] + row["cluster_client_hits"] +
+                          row.get("coalesced_peer_waits", 0) + row.get("coalesced_cluster_client_waits", 0))
+        if not 0 <= row["successful_reverse_queries"] <= client_sources:
             raise RuntimeError("successful reverse queries must come from a local or neighbor client")
     equal(result["ipc_messages_sent"], result["ipc_messages_received"], "IPC drain")
-    if result["experiment"] == "baseline":
+    if result["experiment"] in BASELINE_MODELS:
         equal(forwarder["manager_queries"], 0, "baseline manager lookups")
         equal(forwarder["manager_updates_sent"], 0, "baseline region advertisements")
         equal(forwarder["cluster_queries"], 0, "baseline cluster probes")

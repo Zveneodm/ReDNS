@@ -9,9 +9,9 @@ import sys
 import tempfile
 import unittest
 
-from sim.arrivals import Workload
-from sim.metrics import validate_results
-from sim.realtime import ROLES, RealtimeSimulation
+from sim.traffic.arrivals import Workload
+from lib.metrics import validate_results
+from lib.realtime import ROLES, RealtimeSimulation
 from tests.helpers import config
 
 
@@ -48,7 +48,9 @@ class RuntimeTests(unittest.TestCase):
                 if hasattr(os, "sched_getaffinity") and len(os.sched_getaffinity(0)) >= 3:
                     self.assertEqual(len({row["cpu"] for row in result["workers"].values()}), 3)
                 self.assertEqual(list(result["request_latencies_ms"]), [111] * result["total_queries"])
-                self.assertEqual(result["authoritative_queries"], result["total_queries"])
+                self.assertEqual(result["authoritative_queries"] +
+                                 result["forwarder"]["coalesced_authority_waits"], result["total_queries"])
+                self.assertEqual(sum(result["request_authority_queries"]), result["authoritative_queries"])
                 self.assertEqual(result["successful_reverse_queries"], 0)
                 self.assertEqual(result["topology"], "client-forwarder-authority")
                 self.assertNotIn("public_dns", result)

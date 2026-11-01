@@ -7,9 +7,9 @@ import sys
 import tempfile
 import unittest
 
-from sim.observe_retention import read_profile, summarize_groups
-from sim.realtime import RealtimeSimulation
-from sim.retention import INDEX, RetentionObserver
+from lib.analysis.retention import read_profile, summarize_groups
+from lib.realtime import RealtimeSimulation
+from lib.retention import INDEX, RetentionObserver
 from src.records import Record
 from tests.helpers import ProtocolHarness, config
 

@@ -15,8 +15,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from sim.analyze_origin import authority_threshold, authority_ttls, workload_arrivals
-from sim.metrics import validate_results
+from lib.analysis.origin import authority_threshold, authority_ttls, workload_arrivals
+from lib.metrics import validate_results
 
 
 def main():

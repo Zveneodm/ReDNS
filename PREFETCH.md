@@ -2,11 +2,24 @@
 
 `prefetch` 分支新增 `ReDNS-prefetch`，保留原 baseline 和无预取 `ReDNS`。
 
+实现已集中在 `src/auxiliary/`。普通入口按 `config.json` 的 `prefetch.enabled` 决定是否启用，省略时默认 `false`；`run_prefetch.py` 与 `run_baseline_prefetch.py` 是兼容入口，也读取同一开关。当前标准配置显式设为 `true`，其余算法与预算参数未改动。默认结果保存于自动递增的 `res/YYYYMMDD-N/`。
+
+另提供 `baseline-prefetch`，用于比较相同集群预取策略下开启 ReDNS 协作的额外收益。它使用 `BaselineForwarder`、相同 Forestall 跟踪器和集群预算、相同的低负载派发，但没有 client 副本目录、区域可用性发布、邻居取回或淘汰转存。manager 仅负责预取，预取完成仍只存入目标 forwarder 的普通缓存。实现与标准实验说明见 [预取消融对照](experiments/prefetch-ablation/Readme.md)。
+
+```bash
+python3 -m sim.run_comparison --prefetch-ablation --config config.json --output-dir res/prefetch-ablation
+python3 -m sim.report_prefetch res/prefetch-ablation --output-dir experiments/prefetch-ablation
+```
+
+`--prefetch-ablation` 只运行 baseline-prefetch 与 ReDNS-prefetch，和三组入口 `--include-prefetch` 互斥。两组都执行完整协议试跑和时序检查，共享进程所有权及 CPU 绑定（包括 manager）；任一组失败则整轮从空缓存重试，不与旧实验结果拼接。结果报告包含前台 RTT、前台/后台/总权威查询、预取至少使用一次的记录比例和每用户请求的总回源成本。相同预算比例不保证相同预取数量，因为它依赖模型实际到达 forwarder 的需求。结论限于当前集群派发策略、负载及单个 seed，不预设 ReDNS 必然在所有指标上更优。
+
 第一次完整实验与取舍见 [实验结果解读](experiments/prefetch/analysis.md)、[结果表](experiments/prefetch/report.md) 和 [当时配置](experiments/prefetch/config.json)。当前配置已改用集群共享的 `budget_ratio` 预算，历史实验不代表当前版本的性能。
 
 后续实现审查、修复及上次数据的逐请求拆解见 [审查报告](experiments/prefetch/audit.md)。第一次完整实验对应提交 `117da42`，不代表后续修复后的性能。
 
 `budget_ratio` 的实现与多集群验证见 [预算验证记录](experiments/prefetch-budget/Readme.md)。
+
+四种模型现在均默认合并同一 `(forwarder, cache_key)` 的前台并发 miss，机制与统计见 [Readme.md](Readme.md)。合并等待者仍是一次独立的前台需求，仍提供预算和热度样本；只有实际发起的权威请求计入回源数。后台预取与前台解析保持独立，预取时延不进入前台样本。此前未合并版本的正式性能数字需通过新一轮对照更新。
 
 ```bash
 python3 -m sim.run_comparison --include-prefetch --config config.json --output-dir res/prefetch-budget
@@ -28,6 +41,7 @@ manager 在 `advice_seconds` 对应的固定模拟时间边界生成建议，由
 
 ```json
 "prefetch": {
+  "enabled": true,
   "budget_ratio": 0.15,
   "max_inflight_per_forwarder": 8
 }

@@ -45,6 +45,7 @@
   "forwarder_manager_RTT": 1,
   "forwarder_authoritative_RTT": 110,
   "prefetch": {
+    "enabled": true,
     "report_seconds": 1.0,
     "history_seconds": 300.0,
     "advice_seconds": 5.0,

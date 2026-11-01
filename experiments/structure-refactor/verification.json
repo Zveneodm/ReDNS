@@ -1,0 +1,85 @@
+{
+  "tests_passed": 202,
+  "deterministic_cases": 8,
+  "before_sha256": "8de68ac5a57c92ed3c94ad37273171141c1d8a45711eca0db4fcd3e0c3b8458c",
+  "after_sha256": "8de68ac5a57c92ed3c94ad37273171141c1d8a45711eca0db4fcd3e0c3b8458c",
+  "algorithm_snapshots_identical": true,
+  "latest_comparison": "res/20261101-2/comparison.json",
+  "smoke_runs": {
+    "off": {
+      "directory": "res/20261101-1",
+      "models": {
+        "baseline": {
+          "total_queries": 391,
+          "warm_up_queries": 132,
+          "timing_valid": true,
+          "prefetch_enabled": false,
+          "prefetch_authoritative_queries": 0,
+          "workload_fingerprint_sha256": "c51decb153d6de91aa3d1b1be7a8e4958205f48c8d3a34ec7db50d1f0c3833f3",
+          "ttl_fingerprint_sha256": "e87f401f581f58b11782ec39b5c53427f8ad7f15f3a0a82c367f626747d00cb0"
+        },
+        "ReDNS": {
+          "total_queries": 391,
+          "warm_up_queries": 132,
+          "timing_valid": true,
+          "prefetch_enabled": false,
+          "prefetch_authoritative_queries": 0,
+          "workload_fingerprint_sha256": "c51decb153d6de91aa3d1b1be7a8e4958205f48c8d3a34ec7db50d1f0c3833f3",
+          "ttl_fingerprint_sha256": "e87f401f581f58b11782ec39b5c53427f8ad7f15f3a0a82c367f626747d00cb0"
+        }
+      }
+    },
+    "on": {
+      "directory": "res/20261101-2",
+      "models": {
+        "baseline-prefetch": {
+          "total_queries": 391,
+          "warm_up_queries": 132,
+          "timing_valid": true,
+          "prefetch_enabled": true,
+          "prefetch_authoritative_queries": 0,
+          "workload_fingerprint_sha256": "c51decb153d6de91aa3d1b1be7a8e4958205f48c8d3a34ec7db50d1f0c3833f3",
+          "ttl_fingerprint_sha256": "e87f401f581f58b11782ec39b5c53427f8ad7f15f3a0a82c367f626747d00cb0"
+        },
+        "ReDNS-prefetch": {
+          "total_queries": 391,
+          "warm_up_queries": 132,
+          "timing_valid": true,
+          "prefetch_enabled": true,
+          "prefetch_authoritative_queries": 22,
+          "workload_fingerprint_sha256": "c51decb153d6de91aa3d1b1be7a8e4958205f48c8d3a34ec7db50d1f0c3833f3",
+          "ttl_fingerprint_sha256": "e87f401f581f58b11782ec39b5c53427f8ad7f15f3a0a82c367f626747d00cb0"
+        }
+      }
+    },
+    "single": {
+      "directory": "res/20261101-3",
+      "models": {
+        "ReDNS-prefetch": {
+          "total_queries": 391,
+          "warm_up_queries": 132,
+          "timing_valid": true,
+          "prefetch_enabled": true,
+          "prefetch_authoritative_queries": 17,
+          "workload_fingerprint_sha256": "c51decb153d6de91aa3d1b1be7a8e4958205f48c8d3a34ec7db50d1f0c3833f3",
+          "ttl_fingerprint_sha256": "e87f401f581f58b11782ec39b5c53427f8ad7f15f3a0a82c367f626747d00cb0"
+        }
+      }
+    }
+  },
+  "historical_result_checks_passed": true,
+  "historical_models": {
+    "baseline-prefetch": {
+      "result_file": "run-44d4374192c2/baseline-prefetch_results.json",
+      "result_sha256": "a7b7226b1ea4ddc14e12e6f9befe41e0548ada2443ea0eeb7278686c499745b2",
+      "total_queries": 8998486,
+      "checks_passed": true
+    },
+    "ReDNS-prefetch": {
+      "result_file": "run-44d4374192c2/ReDNS-prefetch_results.json",
+      "result_sha256": "fec70ef8f7bce18857d28c788211d2da601e4d509a74ffac58ef7f811ba8b7f8",
+      "total_queries": 8998486,
+      "checks_passed": true
+    }
+  }
+}

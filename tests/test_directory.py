@@ -1,6 +1,6 @@
 import unittest
 
-from sim.clock import ManualClock
+from lib.clock import ManualClock
 from src.cooperation import CopyDirectory
 from src.models import ReDNSForwarder
 from src.records import Record

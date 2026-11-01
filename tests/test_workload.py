@@ -5,9 +5,9 @@ import statistics
 import unittest
 from unittest.mock import patch
 
-from sim.arrivals import Workload
-from sim.clock import ManualClock, RealtimeClock
-from sim.preferences import HierarchicalZipf
+from sim.traffic.arrivals import Workload
+from lib.clock import ManualClock, RealtimeClock
+from sim.traffic.preferences import HierarchicalZipf
 from src.models import AuthoritativeServer
 from src.records import Record
 from tests.helpers import ProtocolHarness, config
@@ -85,11 +85,11 @@ class ClockTests(unittest.TestCase):
         clock = RealtimeClock()
         self.assertEqual(clock.now, 0)
         clock.start(1_000_000_000, 0.0001)
-        with patch("sim.clock.perf_counter_ns", return_value=1_000_050_000):
+        with patch("lib.clock.perf_counter_ns", return_value=1_000_050_000):
             self.assertAlmostEqual(clock.now, 0.5)
             record = AuthoritativeServer([0.75], clock).lookup(0)
             self.assertEqual(record.expires_at, 1.25)
-        with patch("sim.clock.perf_counter_ns", return_value=1_000_100_000):
+        with patch("lib.clock.perf_counter_ns", return_value=1_000_100_000):
             self.assertAlmostEqual(record.remaining_ttl(clock.now), 0.25)
         clock.freeze(1_000_125_000)
         self.assertTrue(record.is_expired(clock.now))

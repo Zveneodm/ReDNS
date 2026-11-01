@@ -29,6 +29,7 @@ DEFAULT_CONFIG = {
     "pin_cpu": True,
     "workers": {"client": 1, "forwarder": 1, "manager": 1},
     "prefetch": {
+        "enabled": False,
         "report_seconds": 1.0, "history_seconds": 300.0, "advice_seconds": 5.0,
         "alpha": 1, "beta": 0, "gamma": 1.0, "epsilon": None, "zeta": None,
         "budget_ratio": 0.15, "max_inflight_per_forwarder": 8,
@@ -84,7 +85,10 @@ def validate_config(config):
         prefetch["max_inflight_per_forwarder"] = legacy_limit
     result["prefetch"] = {**DEFAULT_CONFIG["prefetch"], **prefetch}
     for name, value in result["prefetch"].items():
-        if name == "budget_ratio":
+        if name == "enabled":
+            if not isinstance(value, bool):
+                raise ValueError("prefetch.enabled must be a boolean")
+        elif name == "budget_ratio":
             if (isinstance(value, bool) or not isinstance(value, (int, float)) or
                     not math.isfinite(value) or not 0 <= value <= 1):
                 raise ValueError("prefetch.budget_ratio must be finite and between 0 and 1")
@@ -218,3 +222,10 @@ def validate_config(config):
 def load_config(path):
     with Path(path).open(encoding="utf-8-sig") as stream:
         return validate_config(json.load(stream))
+
+
+def experiment_model(base_model, config):
+    """Resolve the optional extension for the ordinary experiment entry points."""
+    if base_model not in ("baseline", "ReDNS"):
+        raise ValueError(f"unknown base model: {base_model}")
+    return base_model + ("-prefetch" if config.get("prefetch", {}).get("enabled", False) else "")

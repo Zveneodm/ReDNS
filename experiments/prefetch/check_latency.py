@@ -19,6 +19,7 @@ def check(directory):
             "cluster_client_probes_ms": forwarder["cluster_child_queries"] * cfg["client_forwarder_RTT"],
             "manager_lookups_ms": forwarder["manager_queries"] * cfg["forwarder_manager_RTT"],
             "foreground_authority_ms": forwarder["upstream_queries"] * cfg["forwarder_authoritative_RTT"],
+            "coalesced_wait_ms": forwarder.get("coalesced_wait_latency_ms", 0),
         }
         total, count = fsum(ledger.values()), result["total_queries"]
         assert len(result["request_latencies_ms"]) == count

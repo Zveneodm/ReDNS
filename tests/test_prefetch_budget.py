@@ -5,9 +5,9 @@ from fractions import Fraction
 import io
 import unittest
 
-from sim.config import DEFAULT_CONFIG, validate_config
-from sim.realtime import RealtimeSimulation
-from src.prefetch_budget import ClusterPrefetchBudget
+from lib.config import DEFAULT_CONFIG, validate_config
+from lib.realtime import RealtimeSimulation
+from src.auxiliary.prefetch_budget import ClusterPrefetchBudget
 from tests.helpers import ProtocolHarness, config
 from tests.test_parallel import ShardedHarness
 

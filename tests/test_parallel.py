@@ -5,13 +5,13 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from sim.analyze_origin import analyze_saved_result
-from sim.clock import ManualClock
-from sim.comparison import validate_pair
-from sim.config import validate_config
-from sim.metrics import aggregate, validate_results
-from sim.parallel import WorkerLayout
-from sim.realtime import RealtimeSimulation, _Layer
+from lib.analysis.origin import analyze_saved_result
+from lib.clock import ManualClock
+from lib.comparison import validate_pair
+from lib.config import validate_config
+from lib.metrics import aggregate, validate_results
+from lib.parallel import WorkerLayout
+from lib.realtime import RealtimeSimulation, _Layer
 from src.records import Record
 from tests.helpers import ProtocolHarness, config
 
@@ -142,8 +142,10 @@ class ParallelTests(unittest.TestCase):
             self.assertTrue(all(not p.is_alive() for p in simulation.processes.values()))
             validate_results(result)
             self.assertEqual(len(result["workers"]), 9 if model == "ReDNS" else 7)
-            self.assertEqual(result["authoritative_queries"], result["total_queries"])
-            self.assertEqual(set(result["request_latencies_ms"]), {112 if model == "ReDNS" else 111})
+            self.assertEqual(result["authoritative_queries"] +
+                             result["forwarder"]["coalesced_authority_waits"], result["total_queries"])
+            self.assertTrue(set(result["request_latencies_ms"]) <=
+                            ({111, 112} if model == "ReDNS" else {111}))
             rows[model] = result
         validate_pair(rows, cfg, rows["baseline"]["cpu_pool"])
         self.assertTrue(analyze_saved_result(rows["ReDNS"])["fingerprints_verified"])

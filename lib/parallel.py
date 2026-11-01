@@ -1,7 +1,8 @@
 """Deterministic ownership and IPC routing; no cache state is replicated."""
 
 from src.manager import empty_manager_metrics
-from sim.metrics import aggregate
+from src.variants import PREFETCH_MODELS
+from lib.metrics import aggregate
 
 
 ROLES = ("client", "forwarder", "authority")
@@ -13,7 +14,7 @@ FORWARDER_TOTALS = (
 
 
 def simulation_roles(config, model):
-    if model == "ReDNS-prefetch" or (model == "ReDNS" and config["forwarder_cluster_size"] > 1
+    if model in PREFETCH_MODELS or (model == "ReDNS" and config["forwarder_cluster_size"] > 1
                                       and config["num_forwarders"] > 1):
         return (*ROLES, "manager")
     return ROLES
@@ -77,7 +78,7 @@ class WorkerLayout:
             return self.owner("forwarder", message[1])
         if kind == "prefetch_query":
             return self.owner("authority", 0)
-        if kind in ("answer", "peer_answer", "manager_answer", "cluster_answer"):
+        if kind in ("answer", "query_answer", "peer_answer", "manager_answer", "cluster_answer"):
             token = message[1]
             if not isinstance(token, tuple) or token[0] not in self.workers:
                 raise ValueError("reply has no active token owner")

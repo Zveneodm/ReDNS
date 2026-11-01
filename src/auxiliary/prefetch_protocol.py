@@ -4,14 +4,15 @@ from collections import defaultdict
 from heapq import heappop, heappush
 from math import floor
 
-from src.prefetch import Forestall
-from src.prefetch_budget import ClusterPrefetchBudget
+from src.auxiliary.prefetch import Forestall
+from src.auxiliary.prefetch_budget import ClusterPrefetchBudget
 from src.records import Record
+from src.variants import PREFETCH_MODELS
 
 
 class PrefetchProtocol:
     def _init_prefetch(self, manager_shards, manager_shard):
-        self.prefetch_enabled = self.model == "ReDNS-prefetch"
+        self.prefetch_enabled = self.model in PREFETCH_MODELS
         self.manager_shards, self.manager_shard = manager_shards, manager_shard
         self.prefetch_epoch = 1
         self.prefetch_final = False

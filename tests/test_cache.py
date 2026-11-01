@@ -3,7 +3,7 @@ from dataclasses import FrozenInstanceError
 import random
 import unittest
 
-from sim.clock import ManualClock
+from lib.clock import ManualClock
 from src.cache import DNSCache, new_stats
 from src.models import AuthoritativeServer, BaselineForwarder, ReDNSForwarder
 from src.records import Record

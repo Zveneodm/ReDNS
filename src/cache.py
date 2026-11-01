@@ -11,6 +11,9 @@ from src.replacement import create_cache
 
 STAT_FIELDS = (
     "queries", "hits", "misses", "upstream_queries",
+    "coalesced_queries", "coalesced_wait_latency_ms",
+    "coalesced_authority_waits", "coalesced_peer_waits",
+    "coalesced_cluster_forwarder_waits", "coalesced_cluster_client_waits",
     "expired_evictions", "lru_evictions", "random_evictions",
     "peer_queries", "peer_hits", "peer_misses", "peer_transfer_hits",
     "successful_reverse_queries",

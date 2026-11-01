@@ -4,10 +4,10 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from sim.comparison import run_comparison, validate_pair
-from sim.config import validate_config
-from sim.realtime import RealtimeSimulation
-from src.prefetch import Forestall
+from lib.comparison import run_comparison, validate_pair
+from lib.config import validate_config
+from lib.realtime import RealtimeSimulation
+from src.auxiliary.prefetch import Forestall
 from src.records import Record
 from tests.helpers import ProtocolHarness, config
 from tests.test_parallel import ShardedHarness
@@ -51,7 +51,7 @@ class ForecastTests(unittest.TestCase):
         self.assertNotIn(8, tracker.tracking)
 
     def test_invalid_configuration_is_rejected_and_defaults_are_copied(self):
-        for value in (None, {"enabled": True}, {"alpha": 0}, {"beta": -1},
+        for value in (None, {"enabled": "true"}, {"alpha": 0}, {"beta": -1},
                       {"gamma": float("nan")}, {"zeta": -1}, {"epsilon": True},
                       {"max_per_forwarder": 0}, {"report_seconds": 0}):
             with self.subTest(value=value), self.assertRaises(ValueError):

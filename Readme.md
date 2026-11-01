@@ -2,13 +2,16 @@
 
 `prefetch` 分支新增集群预取模型及三组正式对照，机制、参数与运行方法见 [PREFETCH.md](PREFETCH.md)。原有两模型入口继续保留。
 
+普通实验入口统一读取 `config.json` 中的 `prefetch.enabled`：`true` 开启预取，`false` 关闭；省略时默认关闭。当前配置为 `true`。`sim.run_baseline`、`sim.run_ReDNS` 和默认的 `sim.run_comparison` 都按此开关选择已有模型。显式的 `--include-prefetch` / `--prefetch-ablation` 用于指定对照模型集合，独立于普通入口的开关选择。
+
 当前 `config.json` 的 `prefetch.budget_ratio=0.15` 表示每个集群累计每 100 次到达 forwarder 的前台查询提供 15 次预取额度。`max_inflight_per_forwarder=8` 只限制同时未完成的任务，每轮预取次数不再固定限制为 8。
 
-ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供三种模型：
+ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供四种模型：
 
 - **baseline**：client 和 forwarder 各自维护普通缓存，forwarder 未命中就查询权威服务器。
 - **ReDNS**：forwarder 未命中后先查询直属 client 副本，再向本集群 manager 定位可用区域，并定向查询相应 forwarder；没有可用区域或已知候选均失败后查询权威服务器。
 - **ReDNS-prefetch**：在 ReDNS 上增加集群热度上报、manager 生成预取列表、低负载 forwarder 执行预取，以及按上报负载排序区域查询候选。用 `--include-prefetch` 启用三组对照。
+- **baseline-prefetch**：普通 client / forwarder 缓存加上相同的集群预取算法、预算与任务派发；不启用 ReDNS 的副本查询、跨区域取回及淘汰转存。用 `--prefetch-ablation` 仅比较它与 ReDNS-prefetch，测量相同预取机制下 ReDNS 协作的额外收益。
 
 实验拓扑为 **client → forwarder → 权威服务器**，同集群 forwarder 可以互相查询缓存。每个 client 固定连接一个 forwarder，编号映射为 `client_id % num_forwarders`；副本目录只在所属 forwarder 内维护，集群外不相互查询。
 
@@ -16,39 +19,36 @@ ReDNS 是一个使用 Python 标准库实现的 DNS 缓存模拟项目，提供�
 
 ```text
 ReDNS/
-├── src/                         # 模型与协议，不依赖进程调度
-│   ├── records.py               # 不可变 DNS 记录、绝对到期时间
-│   ├── cache.py                 # 两组共用的 TTL 缓存、转存接收和统计
-│   ├── replacement.py           # LRU / 等概率随机替换
-│   ├── expiry.py                # 带版本的过期最小堆
-│   ├── cooperation.py           # 直属 client 副本目录、空位选择
-│   ├── cluster.py               # 连续编号分组与集群查询边界
-│   ├── manager.py               # 每域名、每区域一个合并可用性条目
-│   ├── models.py                # Client、两种 Forwarder、权威服务器
-│   └── protocol.py              # 查询、回复、目录通知、转存协议
-├── sim/                         # 模拟实验运行代码
-│   ├── config.py                # 配置读取与严格校验
-│   ├── arrivals.py              # 泊松到达和 client / 域名抽样
-│   ├── preferences.py           # 区域与 client 的合成 Zipf 需求
-│   ├── clock.py                 # 多进程单调时钟；单测使用的手动时钟
-│   ├── realtime.py              # 缓存及 manager 进程、CPU 绑定、消息队列
-│   ├── parallel.py              # 分片所有权、消息路由及统计合并
-│   ├── timing.py                # 到达滞后、持续积压和运行超时检查
-│   ├── comparison.py            # 共同速率试跑、成对重试与一致性校验
-│   ├── metrics.py               # 聚合统计与流量守恒校验
-│   ├── analyze_origin.py        # 从已保存结果重放回源请求历史及理想缓存参考
-│   ├── retention.py             # 可选域名级缓存留存观察，不改变缓存规则
-│   ├── observe_retention.py     # 留存观察、热度分组与报告入口
-│   ├── experiment.py            # 命令行、结果文件写入
-│   ├── progress.py              # 终端进度
-│   ├── run_baseline.py          # baseline 入口
-│   ├── run_comparison.py        # 正式成对对照入口
-│   └── run_ReDNS.py             # ReDNS 入口
-├── tests/                       # 缓存、协议及真实多进程回归检查
-├── config.json                  # 运行时配置
-├── res/                         # 实验结果，不将大结果文件纳入 Git
-├── Readme.md                    # 项目说明与运行方法
-└── ReDNS_ARCHITECTURE.md         # 与当前代码对应的详细机制说明
+├── src/                         # 核心 DNS 缓存与协作算法
+│   ├── records.py / cache.py    # 记录、TTL 缓存与回填
+│   ├── expiry.py / replacement.py
+│   ├── cooperation.py / cluster.py / manager.py
+│   ├── models.py / variants.py
+│   ├── protocol.py             # 解析、目录通知、转存与并发 miss 合并
+│   └── auxiliary/              # 可选扩展
+│       ├── prefetch.py         # Forestall 热度与候选算法
+│       ├── prefetch_budget.py  # 集群预算及任务分配
+│       └── prefetch_protocol.py
+├── sim/                        # 实验、观察和报告的启动入口
+│   ├── run_baseline.py / run_ReDNS.py / run_comparison.py
+│   ├── run_prefetch.py / run_baseline_prefetch.py  # 兼容入口，同样读取配置开关
+│   ├── analyze_origin.py / observe_retention.py / report_prefetch.py
+│   └── traffic/                # 合成请求，与核心算法隔离
+│       ├── arrivals.py         # 泊松到达、client / 域名抽样
+│       └── preferences.py      # Zipf 与区域偏好
+├── lib/                        # 公共实验基础设施
+│   ├── config.py / experiment.py / results.py
+│   ├── realtime.py / parallel.py / clock.py
+│   ├── comparison.py / timing.py / metrics.py / progress.py
+│   ├── retention.py
+│   └── analysis/               # 回源、预取报告与留存分析
+├── tests/                      # 单测与真实多进程回归
+├── experiments/                # 历史配置、报告与验证脚本
+├── config.json                 # 标准配置与可选扩展开关
+└── res/                        # 新结果按日期和序号分组
+    ├── 20261101-1/
+    ├── 20261101-2/
+    └── 20261101-3/
 ```
 
 原有 `data/` 样本保留；当前实验使用合成请求，不读取其中的 Excel 文件。
@@ -67,10 +67,30 @@ python3 -m unittest discover -s tests -v
 也支持直接执行脚本、指定配置或输出位置：
 
 ```bash
-python3 sim/run_comparison.py --config config.json --output-dir res/comparison
-python3 sim/run_baseline.py --config config.json --output res/baseline_results.json
-python3 sim/run_ReDNS.py --config config.json --output res/ReDNS_results.json
+python3 sim/run_comparison.py --config config.json
+python3 sim/run_baseline.py --config config.json
+python3 sim/run_ReDNS.py --config config.json
 ```
+
+这些命令默认分别分配新的 `res/YYYYMMDD-N/`，同一天按数字递增且不会覆盖旧结果。单模型保存对应模型的 JSON；对照实验在同一目录保存两组结果、`config.json`、`manifest.json` 和 `comparison.json`。例如当前开关为 `true` 时，两组文件名为 `baseline-prefetch_results.json` 与 `ReDNS-prefetch_results.json`。`--output` / `--output-dir` 仍可显式指定位置；为保持旧结果指针安全，显式指定的对照目录沿用内部 `run-*` 发布方式。
+
+报告保存在相应实验目录内，例如：
+
+```bash
+python3 -m sim.report_prefetch res/20261101-1 --output-dir res/20261101-1/report
+```
+
+本次目录迁移、配置开关和结果命名的验证见 [结构整理记录](experiments/structure-refactor/Readme.md)。核心算法的固定时钟快照在迁移前后完全一致。
+
+只比较「baseline + prefetch」与「ReDNS + prefetch」，并生成包含后台成本的结果报告：
+
+```bash
+python3 -m sim.run_comparison --prefetch-ablation --config config.json --output-dir res/prefetch-ablation
+python3 -m sim.report_prefetch res/prefetch-ablation --output-dir experiments/prefetch-ablation
+python3 -m sim.run_baseline_prefetch --config config.json
+```
+
+该对照保留相同的标准配置、预取策略和预算比例，baseline-prefetch 的 manager 只执行预取。baseline 预取记录只能在落点 forwarder 使用，ReDNS 还能通过目录共享。预算按各模型实际到达 forwarder 的前台请求计费，因此预取次数不强制相等；报告同时比较前台时延、前台与后台回源总量及预取使用比例。实现说明、配置快照和标准实验报告见 [预取消融实验](experiments/prefetch-ablation/Readme.md)。
 
 进程数通过 `workers` 配置；`config.json` 省略该项，各角色默认 1 个进程。预取正式对照配置 `experiments/prefetch/config.json` 使用 2 个 client、4 个 forwarder、2 个 manager，加权威和请求调度各 1 个，共 10 个模拟进程。baseline 使用相同的公共进程及其 CPU，manager 槽位空闲。父进程协调运行与收集结果，不计入这些模拟进程。Linux / WSL 下可绑定 CPU；可用 CPU 不足时复用，client / forwarder 进程数不会超过各自节点数。
 
@@ -81,6 +101,12 @@ client 和 forwarder 按 `节点 ID % 进程数` 分片，各节点缓存只有�
 ## 两组模型的机制
 
 两组共用同一套 TTL 缓存和替换策略。查询先检查 client 缓存，再检查对应 forwarder 缓存。
+
+baseline、baseline-prefetch、ReDNS、ReDNS-prefetch 均默认合并同一 forwarder 对同一记录的并发 miss。forwarder 所有者维护 `(forwarder_id, cache_key)` 在途表；当前缓存键为域名 ID。首个请求启动完整解析，后续请求等待同一个结果，forwarder 只回填一次，各 client 分别接收并回填，保留原绝对到期时间。不同 forwarder 或不同记录分别解析；解析完成后清除在途项，零容量与零 TTL 也只在解析期间合并。
+
+并发合并回归及短三组对照见 [验证记录](experiments/coalescing/Readme.md)。
+
+ReDNS 的直属副本探测、manager 定位、邻居查询和最终回源均属于共享解析。邻居帮助请求仍只检查缓存和直属 client，不加入其他前台解析的等待队列，避免相互等待。后台预取继续独立执行，不加入前台在途表。
 
 | forwarder 本地未命中后 | baseline | ReDNS |
 | --- | --- | --- |
@@ -108,7 +134,7 @@ manager 只保存 `域名 → {forwarder ID: (区域到期时间, 版本号)}`�
 
 ## 配置
 
-完整默认值和校验见 [sim/config.py](sim/config.py)。未知字段和无效值会直接报错。
+完整默认值和校验见 [lib/config.py](lib/config.py)。未知字段和无效值会直接报错。
 
 当前 `config.json` 为 30,000 个 client、100 个 forwarder、全局平均 15,000 请求/模拟秒、预热 200 秒、正式窗口 600 秒。每个 client 与 forwarder 的缓存容量均为 1,000 条，域名总数为 1,000,000。
 
@@ -171,13 +197,19 @@ python3 -m sim.run_comparison --time-scale auto
 
 ## 结果与校验
 
-成对入口默认输出到 `res/comparison/`：每次通过的对照保存在独立 `run-*` 目录，含两份 `*_results.json` 和 `manifest.json`；`comparison.json` 指向最新有效对照，记录共同配置、试跑/重试历史和两组摘要。两份结果全部通过后才更新指针，失败不覆盖旧结果。单模型入口仍默认输出 `res/baseline_results.json` 和 `res/ReDNS_results.json`。
+普通入口默认分配独立的 `res/YYYYMMDD-N/`；单模型结果与配置快照直接保存在其中。对照目录包含共同配置、各模型结果、`manifest.json` 与完成后才发布的 `comparison.json`。同一天序号按数字递增，历史结果不覆盖。显式指定 `--output-dir` 的对照入口继续使用内部 `run-*` 及原子指针；旧 `res/comparison/`、`res/prefetch-ablation/` 等历史目录保持原位。
 
 结果包含逐请求延迟、每个节点及层级统计、权威查询量、目录通知量、转存生命周期、进程 PID / CPU、实际缩放比例和到达滞后。`timing_valid` 与 `timing_validation` 提供判定和逐秒滞后；`workload_fingerprint_sha256`、`ttl_fingerprint_sha256` 用于核验输入。结果标记 `schema_version=2`、`topology=client-forwarder-authority`。底层运行器保留无效试次的完整请求和诊断，供回归检查使用；正式入口不会发布它们。
 
 `successful_reverse_queries` 表示成功反向查询次数：client A 的请求在 forwarder 本地未命中后，实际从另一个 client B 的缓存取回答案，且 A ≠ B。B 可以是直属 client，也可以属于同集群邻居。只在原请求 forwarder 计数，帮助方不重复计数。找到目录提示但查询失败、回查 A 自身、forwarder 缓存命中和权威回复均不计入。预热不计入正式结果，baseline 为 0。
 
-该字段同时在终端输出、JSON 顶层、`forwarder.successful_reverse_queries` 汇总以及 `forwarders[i].successful_reverse_queries` 单节点统计中提供。总计等于各 forwarder 之和，不超过 `forwarder.peer_hits + forwarder.cluster_client_hits`。
+该字段同时在终端输出、JSON 顶层、`forwarder.successful_reverse_queries` 汇总以及 `forwarders[i].successful_reverse_queries` 单节点统计中提供。合并等待者按自己的请求 client 判断是否属于反向查询，因此逻辑成功数可能超过实际 client 探测命中数；上限为 `peer_hits + cluster_client_hits + coalesced_peer_waits + coalesced_cluster_client_waits`。
+
+`forwarder.coalesced_queries` 统计加入已有解析的请求，仍计入 `queries/misses`，不计为缓存命中；`upstream_queries` 和 `authoritative_queries` 只统计实际回源。排空后满足 `misses = upstream_queries + peer_hits + cluster_hits + coalesced_queries`。等待结果按来源分别记为 `coalesced_authority_waits`、`coalesced_peer_waits`、`coalesced_cluster_forwarder_waits`、`coalesced_cluster_client_waits`；对照摘要也保存这些计数。
+
+等待者的配置时延为加入时尚未收到回复的解析路径 RTT，加上自身 client↔forwarder RTT；已完成的探测 RTT 不重复收费。`coalesced_wait_latency_ms` 保存所有等待者在 forwarder 处的剩余 RTT 总和。模拟器不按网络 RTT 休眠，因此不从配置 RTT 中扣除实际 IPC 壁钟时间。两个同时到达的请求可以都记录 111 ms，但实际只有一次 110 ms 的权威查询；减少重复回源不等于将每个请求的等待时延减半。预取回源耗时不计入前台时延。
+
+`request_authority_queries` 与正式逐请求时延数组顺序相同，每个值为 0 或 1，标记该请求是否实际发起前台权威查询；合并等待者为 0，数组之和等于 `authoritative_queries`。预热与正式请求分别归属自己的阶段，不因共享解析而迁移统计。
 
 集群统计包括 `cluster_queries`（定向目标探测次数）、`cluster_hits`、`cluster_misses`、`cluster_forwarder_hits` 及 `cluster_client_hits`。manager 查询另列 `manager_queries`、`manager_directory_hits/misses`，目录命中只表示找到候选，不等于实际取回记录。终端和 JSON 顶层均可查看这些计数；JSON 的 `manager` / `managers` 提供总计、每集群通知和版本反馈计数及目录规模，`manager_enabled` 标记是否启用独立 manager 进程。区域通知 `manager_updates_sent` 和失败反馈 `manager_feedback_sent` 经过队列并在结束时校验收发守恒。
 
@@ -191,7 +223,7 @@ JSON 的 `forwarder_clusters` 给出实际分组，每个 ReDNS forwarder 也记
 python3 -m sim.analyze_origin
 ```
 
-该命令核对请求序列和 TTL 指纹，从保存的逐请求 RTT 还原回源请求，区分全局首次、集群首次及集群重复访问；同时重放无限容量、完美发现、即时响应的参考缓存。输出位于对应 `run-*` 目录下的 `origin_analysis/`。参考重放使用计划到达时间，不能直接当作历史过期、逐出或目录漏报的精确原因统计；原文件未记录完整缓存事件，报告会明确这些限制。命令不重新运行正式实验、不修改模型。
+该命令核对请求序列和 TTL 指纹，优先使用逐请求权威查询标记还原实际回源；无合并的旧结果仍可在 RTT 可区分时按时延判断。有合并却缺少标记的结果会拒绝按时延猜测，避免把等待者误算为权威查询。报告区分全局首次、集群首次及集群重复访问，并重放无限容量、完美发现、即时响应的参考缓存。输出位于对应 `run-*` 目录下的 `origin_analysis/`。参考重放使用计划到达时间，不能直接当作历史过期、逐出或目录漏报的精确原因统计；原文件未记录完整缓存事件，报告会明确这些限制。命令不重新运行正式实验、不修改模型。
 
 重构验证：68 项回归检查通过；另按 30,000 client、30 forwarder、15,000 请求/模拟秒运行了两组短验证，预热 5 秒、正式 10 秒、固定 time_scale=2，每组正式处理 148,734 次请求。配置、原始结果与汇总位于 `res/refactor_validation/`，不作为完整正式性能实验。
 

@@ -1,0 +1,178 @@
+{
+  "common_config": {
+    "seed": 42,
+    "time_scale": 2.0,
+    "min_time_scale": 0.0001,
+    "max_in_flight": 512,
+    "calibration_requests": 1000,
+    "timing": {
+      "max_mean_lag_seconds": 0.01,
+      "max_window_lag_seconds": 0.05,
+      "consecutive_lag_windows": 3,
+      "max_overrun_seconds": 0.1,
+      "probe_warm_up_seconds": 20,
+      "probe_duration_seconds": 30,
+      "max_attempts": 4,
+      "scale_multiplier": 2.0,
+      "auto_initial_time_scale": 2.0
+    },
+    "pin_cpu": true,
+    "workers": {
+      "client": 1,
+      "forwarder": 1,
+      "manager": 1
+    },
+    "prefetch": {
+      "report_seconds": 1.0,
+      "history_seconds": 300.0,
+      "advice_seconds": 5.0,
+      "alpha": 1,
+      "beta": 0,
+      "gamma": 1.0,
+      "epsilon": null,
+      "zeta": null,
+      "budget_ratio": 0.15,
+      "max_inflight_per_forwarder": 8
+    },
+    "record_wall_latencies": true,
+    "warm_up_seconds": 200,
+    "duration_seconds": 600,
+    "queries_per_second": 15000,
+    "num_clients": 30000,
+    "num_forwarders": 100,
+    "forwarder_cluster_size": 100,
+    "client_cache_size": 1000,
+    "forwarder_cache_size": 1000,
+    "replacement_policy": "lru",
+    "num_domains": 1000000,
+    "ttl_range": [
+      30,
+      300
+    ],
+    "ttl_distribution": {
+      "values": [
+        20,
+        60,
+        300,
+        900,
+        3600,
+        86400,
+        172800
+      ],
+      "probabilities": [
+        0.05,
+        0.35,
+        0.2,
+        0.2,
+        0.14,
+        0.05,
+        0.01
+      ]
+    },
+    "query_distribution": "zipf",
+    "zipf_alpha": 1.01,
+    "regional_preferences": {
+      "enabled": true,
+      "region_zipf_alpha": 1.15,
+      "client_zipf_alpha": 1.5,
+      "shared_rank_count": 128
+    },
+    "output_dir": "res",
+    "client_forwarder_RTT": 1,
+    "forwarder_forwarder_RTT": 2,
+    "forwarder_manager_RTT": 1,
+    "forwarder_authoritative_RTT": 110
+  },
+  "actual_time_scale": 2.0,
+  "comparison_kind": "prefetch_ablation",
+  "comparisons": {
+    "ReDNS-prefetch_vs_baseline-prefetch": {
+      "average_latency_ms_reduction": 0.4362893421285775,
+      "foreground_authoritative_queries_reduction": 0.4621039932750245,
+      "prefetch_authoritative_queries_reduction": -0.10960415535035306,
+      "total_authoritative_queries_reduction": 0.3564034057207657,
+      "prefetch_use_fraction_change": 0.4007757627698435
+    }
+  },
+  "source_fingerprint_sha256": "078f115a32c85e7e58209d202607e95c248843200639bac6cc2252c2941d3dc1",
+  "workload_fingerprint_sha256": "7b8b7d488caf2502728c3e1fc11424d58ff8fe029638b26113064510b41d7197",
+  "ttl_fingerprint_sha256": "5b4430d118fc1451109420a4da60deddcb4c5c9d6922ed6b2a468157ac49e0e1",
+  "results": {
+    "baseline-prefetch": "run-44d4374192c2/baseline-prefetch_results.json",
+    "ReDNS-prefetch": "run-44d4374192c2/ReDNS-prefetch_results.json"
+  },
+  "models": {
+    "baseline-prefetch": {
+      "total_queries": 8998486,
+      "average_latency_ms": 19.3353669717328,
+      "p50_latency_ms": 0.0,
+      "p95_latency_ms": 111.0,
+      "p99_latency_ms": 111.0,
+      "average_wall_latency_ms": 0.15217889144661984,
+      "foreground_authoritative_queries": 1558370,
+      "prefetch_authoritative_queries": 353472,
+      "total_authoritative_queries": 1911842,
+      "foreground_origin_fraction": 0.17318135517463715,
+      "client_hit_rate": 0.7147532373779323,
+      "forwarder_hit_rate": 0.39286634000691134,
+      "cluster_hits": 0,
+      "prefetch_records_used": 1680,
+      "prefetch_stored": 353472,
+      "prefetch_skipped": 0,
+      "prefetch_use_fraction": 0.004752851711026616,
+      "authority_queries_per_request": 0.21246262982461717,
+      "successful_reverse_queries": 0,
+      "coalesced_queries": 14,
+      "cooperation_enabled": false,
+      "prefetch_enabled": true,
+      "timing_valid": true,
+      "mean_lag_seconds": 0.000578665540148981,
+      "max_lag_seconds": 0.6597302593976337,
+      "overrun_seconds": 0.009210464000034335,
+      "ipc_messages": 14056388,
+      "prefetch_budget": {
+        "prefetch_budget_demand": 2566780,
+        "prefetch_budget_allowance": 385017,
+        "prefetch_budget_reserved": 353607,
+        "prefetch_budget_refunded": 135,
+        "prefetch_budget_blocked": 1
+      }
+    },
+    "ReDNS-prefetch": {
+      "total_queries": 8998486,
+      "average_latency_ms": 10.89955243582087,
+      "p50_latency_ms": 0.0,
+      "p95_latency_ms": 112.0,
+      "p99_latency_ms": 112.0,
+      "average_wall_latency_ms": 5.543935093649822,
+      "foreground_authoritative_queries": 838241,
+      "prefetch_authoritative_queries": 392214,
+      "total_authoritative_queries": 1230455,
+      "foreground_origin_fraction": 0.09315355938765699,
+      "client_hit_rate": 0.7089688198659196,
+      "forwarder_hit_rate": 0.3764659162071757,
+      "cluster_hits": 606429,
+      "prefetch_records_used": 159054,
+      "prefetch_stored": 392214,
+      "prefetch_skipped": 0,
+      "prefetch_use_fraction": 0.40552861448087013,
+      "authority_queries_per_request": 0.1367402249667333,
+      "successful_reverse_queries": 544738,
+      "coalesced_queries": 934,
+      "cooperation_enabled": true,
+      "prefetch_enabled": true,
+      "timing_valid": true,
+      "mean_lag_seconds": 0.0020598010970578197,
+      "max_lag_seconds": 0.6353442229369648,
+      "overrun_seconds": 0.011383395000052587,
+      "ipc_messages": 29337590,
+      "prefetch_budget": {
+        "prefetch_budget_demand": 2618840,
+        "prefetch_budget_allowance": 392826,
+        "prefetch_budget_reserved": 396586,
+        "prefetch_budget_refunded": 4372,
+        "prefetch_budget_blocked": 15
+      }
+    }
+  }
+}

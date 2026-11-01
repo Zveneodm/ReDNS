@@ -14,15 +14,16 @@ from struct import pack
 from time import get_clock_info, perf_counter, perf_counter_ns, sleep
 import traceback
 
-from sim.arrivals import Workload
-from sim.clock import RealtimeClock
-from sim.config import validate_config
-from sim.progress import Progress
-from sim.metrics import aggregate, validate_results
-from sim.parallel import ROLES, WorkerLayout, merge_snapshots, simulation_roles
-from sim.timing import SimulationOverload, TimingMonitor
+from sim.traffic.arrivals import Workload
+from lib.clock import RealtimeClock
+from lib.config import validate_config
+from lib.progress import Progress
+from lib.metrics import aggregate, validate_results
+from lib.parallel import ROLES, WorkerLayout, merge_snapshots, simulation_roles
+from lib.timing import SimulationOverload, TimingMonitor
 from src.protocol import DNSProtocol
 from src.manager import empty_manager_metrics
+from src.variants import COOPERATIVE_MODELS, MODELS, PREFETCH_MODELS
 
 
 class _Layer(DNSProtocol):
@@ -65,6 +66,7 @@ class _Layer(DNSProtocol):
             self.overload_reported = False
             self.driver_done = False
             self.latencies = array("d")
+            self.authority_requests = array("B")
             self.wall_latencies = array("d") if config["record_wall_latencies"] else None
             self.wall_latency_total = self.wall_latency_max = 0.0
             self.arrival_lag_total = self.arrival_lag_max = 0.0
@@ -106,6 +108,7 @@ class _Layer(DNSProtocol):
         self.handle_message(message)
 
     def _issue(self, client, domain, scheduled):
+        trace = {}
         measure = scheduled >= self.cfg["warm_up_seconds"]
         issued_ns = perf_counter_ns()
         lag_sim = max(0.0, (issued_ns - self.clock.start_ns) / (1e9 * self.clock.scale) - scheduled)
@@ -118,6 +121,7 @@ class _Layer(DNSProtocol):
         if measure:
             index = len(self.latencies)
             self.latencies.append(0)
+            self.authority_requests.append(0)
             if self.wall_latencies is not None:
                 self.wall_latencies.append(0)
             lag = lag_sim * self.clock.scale * 1000
@@ -133,6 +137,7 @@ class _Layer(DNSProtocol):
             if measure:
                 wall_ms = (perf_counter_ns() - issued_ns) / 1e6
                 self.latencies[index] = answer[2]
+                self.authority_requests[index] = int(trace["authority_query"])
                 if self.wall_latencies is not None:
                     self.wall_latencies[index] = wall_ms
                 self.wall_latency_total += wall_ms
@@ -142,10 +147,14 @@ class _Layer(DNSProtocol):
             # Runtime dispatch/reply messages add no synthetic DNS RTT. They
             # keep one global schedule and in-flight cap across client owners.
             token = self._new_token()
-            self.pending[token] = completed
+            def dispatched(answer, authority_query):
+                trace["authority_query"] = authority_query
+                completed(answer)
+
+            self.pending[token] = dispatched
             self._send("client", ("query", self.endpoint, token, client, domain, True, measure, None))
         else:
-            self._query(client, domain, True, measure, completed)
+            self._query(client, domain, True, measure, completed, trace=trace)
 
     def _drive(self):
         if not self.arrival_driver:
@@ -176,7 +185,8 @@ class _Layer(DNSProtocol):
             self.control.send(("progress", when))
 
     def _status(self):
-        return dict(pending=len(self.pending) + len(self.prefetch_queue), outbox=len(self.outbox), sent=self.sent,
+        return dict(pending=len(self.pending) + len(self.prefetch_queue) + len(self.inflight_queries),
+                    outbox=len(self.outbox), sent=self.sent,
                     received=self.received, last_activity_ns=self.last_activity_ns)
 
     def _snapshot(self):
@@ -227,6 +237,7 @@ class _Layer(DNSProtocol):
             timing_validation=self.timing.report(finish=True),
             total_queries=n, warm_up_queries=self.warmup_queries,
             request_latencies_ms=self.latencies, total_latency_ms=total,
+            request_authority_queries=self.authority_requests,
             average_latency_ms=total / n if n else 0.0,
             average_wall_latency_ms=self.wall_latency_total / n if n else 0.0,
             max_wall_latency_ms=self.wall_latency_max,
@@ -306,7 +317,7 @@ def _worker(endpoint, model, config, inboxes, control, cpu, layout, observation=
         layer = _Layer(spec["role"], model, config, inboxes, control, cpu,
                        layout=layout, endpoint=endpoint)
         if observation is not None and not layer.dispatch_driver:
-            from sim.retention import attach_observer
+            from lib.retention import attach_observer
 
             layer.retention_observer = attach_observer(layer, observation)
         control.send(("ready", {"pid": os.getpid(), "cpu": layer.cpu,
@@ -334,7 +345,7 @@ def available_cpu_pool(config):
 class RealtimeSimulation:
     def __init__(self, config, model="baseline", *, observation=None,
                  cpu_pool=None, abort_on_overload=False):
-        if model not in ("baseline", "ReDNS", "ReDNS-prefetch"):
+        if model not in MODELS:
             raise ValueError("unknown model")
         self.config = validate_config(config)
         if self.config["time_scale"] == "auto":
@@ -450,9 +461,13 @@ class RealtimeSimulation:
                 schema_version=2, topology="client-forwarder-authority",
                 experiment=self.model, config=cfg, execution_mode="realtime",
                 manager_enabled="manager" in self.roles,
+                cooperation_enabled=self.model in COOPERATIVE_MODELS,
+                prefetch_enabled=self.model in PREFETCH_MODELS,
                 manager=empty_manager_metrics(), managers=[],
                 clock_basis="scaled_monotonic_wall_time",
                 network_latency_model="accumulated_rtt",
+                query_coalescing="per_forwarder_domain",
+                coalesced_wait_model="remaining_uncompleted_link_rtt",
                 ipc_messages_sent=sum(row["sent"] for row in statuses.values()),
                 ipc_messages_received=sum(row["received"] for row in statuses.values()),
                 elapsed_seconds=cfg["duration_seconds"], warm_up_elapsed_seconds=cfg["warm_up_seconds"],
@@ -466,7 +481,7 @@ class RealtimeSimulation:
             result["authoritative_queries_total"] = (result["authoritative_queries"] +
                                                      result["prefetch_authoritative_queries"])
             if self.observation is not None:
-                from sim.retention import merge_retention
+                from lib.retention import merge_retention
 
                 for role in ("client", "forwarder"):
                     parts = [snap[f"{role}_retention"] for snap in snapshots.values()

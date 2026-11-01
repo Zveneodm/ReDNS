@@ -8,20 +8,22 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
-from sim.config import PROJECT_ROOT, validate_config
-from sim.experiment import write_results
-from sim.realtime import ROLES, RealtimeSimulation, available_cpu_pool
-from sim.timing import SimulationOverload
+from lib.config import PROJECT_ROOT, validate_config
+from lib.experiment import write_results
+from lib.realtime import ROLES, RealtimeSimulation, available_cpu_pool
+from lib.timing import SimulationOverload
+from lib.results import allocate_result_directory
 
 
 MODELS = ("baseline", "ReDNS")
 PREFETCH_MODELS = (*MODELS, "ReDNS-prefetch")
+PREFETCH_ABLATION_MODELS = ("baseline-prefetch", "ReDNS-prefetch")
 
 
 def source_fingerprint():
     """Detect a source edit between paired runs, including uncommitted changes."""
     digest = sha256()
-    for folder in ("src", "sim"):
+    for folder in ("src", "sim", "lib"):
         for path in sorted((PROJECT_ROOT / folder).rglob("*.py")):
             digest.update(path.relative_to(PROJECT_ROOT).as_posix().encode() + b"\0")
             digest.update(path.read_bytes())
@@ -40,10 +42,13 @@ def _summary(result):
               "authoritative_queries", "successful_reverse_queries", "manager_queries",
               "cluster_hits", "wall_run_seconds")
     row = {key: result[key] for key in fields}
-    for key in ("prefetch_authoritative_queries", "authoritative_queries_total"):
+    for key in ("prefetch_authoritative_queries", "authoritative_queries_total",
+                "cooperation_enabled", "prefetch_enabled"):
         if key in result:
             row[key] = result[key]
     if "forwarder" in result:
+        row["coalescing"] = {key: value for key, value in result["forwarder"].items()
+                             if key.startswith("coalesced_")}
         row["prefetch"] = {key: value for key, value in result["forwarder"].items()
                            if key.startswith("prefetch_")}
     if "manager" in result:
@@ -54,7 +59,9 @@ def _summary(result):
 
 def validate_pair(rows, expected_config, cpu_pool):
     """Accept a pair only when its timing and controlled inputs match exactly."""
-    first = rows["baseline"]
+    if not rows:
+        raise RuntimeError("comparison contains no models")
+    first = next(iter(rows.values()))
     for model, row in rows.items():
         if not row["timing_valid"]:
             raise SimulationOverload(row["timing_validation"])
@@ -64,15 +71,16 @@ def validate_pair(rows, expected_config, cpu_pool):
             raise RuntimeError("paired run changed its clock scale")
         if row["cpu_pool"] != list(cpu_pool):
             raise RuntimeError("paired run changed its CPU pool")
+    common_roles = (*ROLES, "driver", "manager") if set(rows) == set(PREFETCH_ABLATION_MODELS) else (*ROLES, "driver")
     public = {name for name in first["workers"]
-              if first["workers"][name].get("role", name) in (*ROLES, "driver")}
+              if first["workers"][name].get("role", name) in common_roles}
     for second in rows.values():
         for field in ("workload_fingerprint_sha256", "ttl_fingerprint_sha256",
                       "warm_up_queries", "total_queries"):
             if first[field] != second[field]:
                 raise RuntimeError(f"paired inputs differ: {field}")
         other = {name for name in second["workers"]
-                 if second["workers"][name].get("role", name) in (*ROLES, "driver")}
+                 if second["workers"][name].get("role", name) in common_roles}
         if public != other:
             raise RuntimeError("paired common worker ownership differs")
         for name in public:
@@ -83,7 +91,7 @@ def validate_pair(rows, expected_config, cpu_pool):
                     raise RuntimeError(f"paired worker ownership differs: {name}.{field}")
 
 
-def run_comparison(config, output_dir, *, runner=None, include_prefetch=False):
+def run_comparison(config, output_dir=None, *, runner=None, include_prefetch=False, prefetch_ablation=False):
     """Probe both full protocols, then rerun both from empty caches at one rate.
 
     A failed formal trial invalidates the whole pair. The scale changes only
@@ -91,7 +99,11 @@ def run_comparison(config, output_dir, *, runner=None, include_prefetch=False):
     comparison.json is an atomic pointer to that pair. Older pairs remain intact.
     """
     config = validate_config(config)
-    models = PREFETCH_MODELS if include_prefetch else MODELS
+    if include_prefetch and prefetch_ablation:
+        raise ValueError("choose either the three-way comparison or the prefetch ablation")
+    prefetch_pair = prefetch_ablation or (config["prefetch"]["enabled"] and not include_prefetch)
+    models = (PREFETCH_ABLATION_MODELS if prefetch_pair else
+              PREFETCH_MODELS if include_prefetch else MODELS)
     limits = config["timing"]
     scale = (limits["auto_initial_time_scale"] if config["time_scale"] == "auto"
              else config["time_scale"])
@@ -99,7 +111,9 @@ def run_comparison(config, output_dir, *, runner=None, include_prefetch=False):
     cpu_pool = available_cpu_pool(config)
     source_hash = source_fingerprint()
     runner = runner or _run
-    output_dir = Path(output_dir)
+    dated_output = output_dir is None
+    output_dir = (allocate_result_directory(PROJECT_ROOT / config["output_dir"])
+                  if dated_output else Path(output_dir))
     output_dir.mkdir(parents=True, exist_ok=True)
     history = []
 
@@ -161,12 +175,23 @@ def run_comparison(config, output_dir, *, runner=None, include_prefetch=False):
                 continue
             run_name = "run-" + uuid4().hex[:12]
             manifest = dict(schema_version=1, timing_valid=True, common_config=cfg,
+                            comparison_kind="prefetch_ablation" if prefetch_pair else
+                                            "three_way" if include_prefetch else "baseline_redns",
                             actual_time_scale=scale, cpu_pool=list(cpu_pool),
                             source_fingerprint_sha256=source_hash, attempts=history,
-                            results={model: f"{run_name}/{model}_results.json" for model in models},
+                            result_directory=str(output_dir.resolve()),
+                            results={model: (f"{model}_results.json" if dated_output else
+                                             f"{run_name}/{model}_results.json") for model in models},
                             models=entry["runs"])
             write_results(stage / "manifest.json", manifest)
-            os.replace(stage, output_dir / run_name)
+            write_results(stage / "config.json", cfg)
+            if dated_output:
+                # This folder was exclusively allocated for this invocation.
+                # Publish the completion pointer only after every file exists.
+                for path in stage.iterdir():
+                    os.replace(path, output_dir / path.name)
+            else:
+                os.replace(stage, output_dir / run_name)
         # Publish only after both complete files and their manifest exist.
         pointer = output_dir / f".comparison-{uuid4().hex}.json"
         try:

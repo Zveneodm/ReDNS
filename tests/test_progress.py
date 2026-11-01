@@ -1,7 +1,7 @@
 import io
 import unittest
 
-from sim.progress import Progress
+from lib.progress import Progress
 
 
 class ProgressTests(unittest.TestCase):

@@ -72,15 +72,15 @@ class RetentionObserver:
     def _install(self):
         original_query = self.layer._query
 
-        def query(node_id, domain, fill, measure, done, *, requester=None):
+        def query(node_id, domain, fill, measure, done, *, requester=None, trace=None):
             if node_id not in self.node_ids:
-                return original_query(node_id, domain, fill, measure, done, requester=requester)
+                return original_query(node_id, domain, fill, measure, done, requester=requester, trace=trace)
             if fill and measure:
                 self._row(node_id, domain)[INDEX["queries"]] += 1
             previous = self.context
             self.context = (node_id, fill and measure)
             try:
-                return original_query(node_id, domain, fill, measure, done, requester=requester)
+                return original_query(node_id, domain, fill, measure, done, requester=requester, trace=trace)
             finally:
                 self.context = previous
 
