@@ -1,7 +1,8 @@
 """Deterministic ownership and IPC routing; no cache state is replicated."""
 
 from src.manager import empty_manager_metrics
-from sim.metrics import aggregate
+from src.variants import PREFETCH_MODELS
+from lib.metrics import aggregate
 
 
 ROLES = ("client", "forwarder", "authority")
@@ -13,7 +14,8 @@ FORWARDER_TOTALS = (
 
 
 def simulation_roles(config, model):
-    if model == "ReDNS" and config["forwarder_cluster_size"] > 1 and config["num_forwarders"] > 1:
+    if model in PREFETCH_MODELS or (model == "ReDNS" and config["forwarder_cluster_size"] > 1
+                                      and config["num_forwarders"] > 1):
         return (*ROLES, "manager")
     return ROLES
 
@@ -64,7 +66,23 @@ class WorkerLayout:
                 raise ValueError(f"unknown worker: {role}")
             return role
         kind = message[0]
-        if kind in ("answer", "peer_answer", "manager_answer", "cluster_answer"):
+        if kind in ("prefetch_local_report", "prefetch_local_result"):
+            return self.name("manager", message[1] % self.counts["manager"])
+        if kind == "prefetch_local_grant":
+            return self.owner("forwarder", message[1])
+        if kind == "prefetch_report":
+            return self.name("manager", message[3])
+        if kind == "prefetch_result":
+            return self.owner("manager", message[1], message[3])
+        if kind == "prefetch_dispatch":
+            return self.owner("manager", message[1], message[3])
+        if kind in ("prefetch_candidates", "prefetch_budget_result"):
+            return self.name("manager", message[1] % self.counts["manager"])
+        if kind == "prefetch_task":
+            return self.owner("forwarder", message[1])
+        if kind == "prefetch_query":
+            return self.owner("authority", 0)
+        if kind in ("answer", "query_answer", "peer_answer", "manager_answer", "cluster_answer"):
             token = message[1]
             if not isinstance(token, tuple) or token[0] not in self.workers:
                 raise ValueError("reply has no active token owner")
@@ -131,5 +149,5 @@ def merge_snapshots(config, model, snapshots):
     size = config["forwarder_cluster_size"]
     result["forwarder_clusters"] = ([list(range(i, min(i + size, config["num_forwarders"])))
                                     for i in range(0, config["num_forwarders"], size)]
-                                   if model == "ReDNS" else [])
+                                   if model != "baseline" else [])
     return result

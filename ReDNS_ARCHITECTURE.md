@@ -1,6 +1,8 @@
 # ReDNS 当前模型架构
 
-本文对应三层解析拓扑及 cluster manager 目录服务的多进程实现。项目只保留 baseline 与 ReDNS 两组；公共 DNS 层、偏好学习转存、主动刷新和 TTL 补足实现均已移除。
+本文对应三层解析拓扑及 cluster manager 目录服务的多进程实现。下文说明 baseline 与 ReDNS 的共同基础；集群主动预取变体 ReDNS-prefetch 见 [PREFETCH.md](PREFETCH.md)。旧公共 DNS 层、偏好学习转存和 TTL 补足实现均已移除。
+
+核心算法保留在 `src/`，预取扩展位于 `src/auxiliary/`，合成流量位于 `sim/traffic/`，实验基础设施与分析辅助代码位于 `lib/`；`sim/` 顶层只保留启动入口。普通入口根据 `prefetch.enabled` 选择已有算法变体。此轮整理不改变解析、TTL、替换、并发合并、预取候选或预算逻辑；默认新结果按 `res/YYYYMMDD-N/` 保存，历史结果路径保留。
 
 ## 1. 拓扑与进程
 
@@ -12,7 +14,7 @@
 
 client 编号为 0 到 N−1，连接到 `client_id % num_forwarders`。forwarder f 的直属 client 为 `range(f, num_clients, num_forwarders)`。同集群 forwarder 可通过消息请求对方的缓存或直属 client，目录仍由各 forwarder 独立维护。没有 client 的 forwarder 也可以存在。
 
-`forwarder_cluster_size` 定义连续编号分组：大小为 3 时，0–2、3–5 等各成一组。组内通过 manager 定位可用区域，再定向查询；组外不查询。末组按实际剩余数量组成，大小为 1 关闭集群协作，超过总数则全部一组。当前 config.json 为 1,000 个 forwarder、集群大小 100，对应 10 个逻辑 manager。baseline 不启用它们。
+`forwarder_cluster_size` 定义连续编号分组：大小为 3 时，0–2、3–5 等各成一组。组内通过 manager 定位可用区域，再定向查询；组外不查询。末组按实际剩余数量组成，大小为 1 关闭集群协作，超过总数则全部一组。当前 config.json 为 100 个 forwarder、集群大小 100，对应 1 个逻辑 manager。baseline 不启用它们。
 
 client / forwarder 各按节点 ID 对工作进程数取模分片，每个节点的可变缓存只有一个所有者。manager 按 `(cluster_id × num_domains + domain_id) % manager_workers` 分片，同一条域名目录的更新、查询和反馈进入同一所有者；逻辑上的每集群一个目录由这些进程共同持有，只有静态成员信息重复，动态域名条目不复制。baseline 或所有集群均为单节点时不启动 manager。权威 TTL 表由一个权威进程持有。父进程协调运行；队列传输查询、通知及回复，各所有者不共享缓存对象，并按可用逻辑 CPU 绑定运行。
 
@@ -29,13 +31,13 @@ client / forwarder 各按节点 ID 对工作进程数取模分片，每个节点
 | `src/manager.py` | 合并区域目录、版本更新和失败反馈保护 |
 | `src/models.py` | Client、BaselineForwarder、ReDNSForwarder、AuthoritativeServer |
 | `src/protocol.py` | 与进程无关的查询、目录通知和空位转存协议 |
-| `sim/realtime.py` | 缓存和 manager 所有者进程、队列、调度与协调 |
-| `sim/parallel.py` | 分片所有权、带所有者标识的 RPC 路由、节点及目录统计合并 |
-| `sim/timing.py` / `sim/comparison.py` | 积压判定、共同试跑、成对重跑与输入一致性检查 |
-| `sim/arrivals.py` / `sim/preferences.py` | 请求到达、域名/client 抽样和合成区域需求 |
-| `sim/config.py` / `sim/experiment.py` | 配置校验、命令行和流式结果输出 |
-| `sim/metrics.py` | 聚合统计与完成时一致性检查 |
-| `sim/retention.py` / `sim/observe_retention.py` | 可选缓存留存观察与域名热度分组；不参与模型决策 |
+| `lib/realtime.py` | 缓存和 manager 所有者进程、队列、调度与协调 |
+| `lib/parallel.py` | 分片所有权、带所有者标识的 RPC 路由、节点及目录统计合并 |
+| `lib/timing.py` / `lib/comparison.py` | 积压判定、共同试跑、成对重跑与输入一致性检查 |
+| `sim/traffic/arrivals.py` / `sim/traffic/preferences.py` | 请求到达、域名/client 抽样和合成区域需求 |
+| `lib/config.py` / `lib/experiment.py` | 配置校验、命令行和流式结果输出 |
+| `lib/metrics.py` | 聚合统计与完成时一致性检查 |
+| `lib/retention.py` / `sim/observe_retention.py` | 可选缓存留存观察与域名热度分组；不参与模型决策 |
 
 `src/` 不导入 `sim/`，不负责进程启动或请求生成；模拟层通过协议的 `_send()` 实现消息传输。没有单进程正式实验入口，手动时钟只用于可控回归检查。
 
@@ -60,6 +62,8 @@ ReDNS 将第 4 步改为：
 8. 邻居 client 命中后，帮助方正常回填自身缓存，再返回原请求 forwarder；双方保留原绝对到期时间。
 9. 候选按 forwarder ID 排序、每个最多尝试一次。失败会反馈对应的目录版本；剩余候选继续尝试，全部失败后仅原请求方查询权威。
 10. manager 没有候选时直接查询权威，不扫描无提示的邻居。集群只有本节点时跳过 manager，直接走权威路径。
+
+四种模型的正常前台查询在 forwarder 本地 miss 后，先检查 `(forwarder_id, domain_id)` 在途表。首个请求登记并执行上述完整解析；后续请求仅加入等待者列表，不重复执行副本探测、manager 定位或回源。回复时删除在途项，forwarder 回填一次，再逐个回复请求 client。每个请求保留自己的正式/预热归属、反向查询身份和剩余 RTT；当前缓存键只有域名 ID。不同 forwarder 不共享在途表。邻居帮助查询不加入在途等待，以保持缓存查询终止性；预取也独立执行。
 
 所有正常响应逐层回填。普通回填可以按替换策略淘汰有效记录；不挤占有效记录的限制仅适用于后台转存。
 
@@ -211,7 +215,7 @@ Record 保存整数域名 ID、绝对到期时间、权威原始 TTL，不保存
 
 ```text
 queries = hits + misses
-upstream_queries = misses - peer_hits - cluster_hits
+upstream_queries = misses - peer_hits - cluster_hits - coalesced_queries
 peer_queries = peer_hits + peer_misses
 cluster_queries = cluster_hits + cluster_misses
 cluster_hits = cluster_forwarder_hits + cluster_client_hits
@@ -244,7 +248,9 @@ manager.feedback_received = manager.feedback_applied + manager.feedback_ignored
 
 ```text
 successful_reverse_queries = sum(forwarders[i].successful_reverse_queries)
-0 <= successful_reverse_queries <= forwarder.peer_hits + forwarder.cluster_client_hits
+0 <= successful_reverse_queries <= (forwarder.peer_hits + forwarder.cluster_client_hits
+                                   + forwarder.coalesced_peer_waits
+                                   + forwarder.coalesced_cluster_client_waits)
 ```
 
 `cluster_queries/hits/misses` 按实际邻居探测计数，一次原始请求可能探测多个邻居，但最多成功一次。JSON 顶层和 forwarder 汇总提供这些计数以及两类来源的命中数。帮助方的本地缓存命中计入 `cluster_cache_hits_served`，不混入正常请求的 `hits`。每个 forwarder 的 `cluster_id` 和顶层 `forwarder_clusters` 给出实际分组；baseline 分组列表为空、协作计数为 0。

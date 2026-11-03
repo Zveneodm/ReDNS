@@ -1,6 +1,8 @@
 """Aggregate node counters and verify a fully drained experiment."""
 
 from collections import Counter
+from fractions import Fraction
+from src.variants import BASELINE_MODELS
 
 
 RATES = {"hit_rate", "transfer_use_rate", "transfer_waste_rate"}
@@ -28,6 +30,34 @@ def validate_results(result):
 
     client, forwarder = result["client"], result["forwarder"]
     manager = result["manager"]
+    if "budget_ratio" in result["config"].get("prefetch", {}):
+        equal(forwarder["prefetch_budget_demand_reported"], manager["prefetch_budget_demand"],
+              "prefetch budget demand flow")
+        ratio = Fraction(str(result["config"]["prefetch"]["budget_ratio"]))
+        for row in result["managers"]:
+            allowance = row["prefetch_budget_demand"] * ratio.numerator // ratio.denominator
+            equal(row["prefetch_budget_allowance"], allowance, "cluster prefetch allowance")
+            spent = row["prefetch_budget_reserved"] - row["prefetch_budget_refunded"]
+            if not 0 <= spent <= allowance:
+                raise RuntimeError("cluster prefetch budget exceeded")
+        equal(manager["prefetch_budget_reserved"] - manager["prefetch_budget_refunded"],
+              forwarder["prefetch_started"], "prefetch credit outcomes")
+        if manager["prefetch_budget_demand"] > forwarder["queries"]:
+            raise RuntimeError("prefetch budget includes non-foreground demand")
+    equal(forwarder["prefetch_reports_sent"], manager["prefetch_reports_received"], "prefetch reports")
+    equal(forwarder["prefetch_observations_sent"], manager["prefetch_observations_received"],
+          "prefetch observations")
+    if result.get("prefetch_scope") == "forwarder":
+        equal(forwarder["prefetch_observations_sent"], 0, "local heat stays at forwarders")
+        equal(manager["prefetch_advice_runs"], 0, "local baseline has no manager forecasting")
+        equal(manager["prefetch_advised"], 0, "local baseline has no manager-generated candidates")
+    equal(manager["prefetch_tasks_sent"], forwarder["prefetch_tasks_received"], "prefetch tasks")
+    equal(forwarder["prefetch_tasks_received"], forwarder["prefetch_started"] +
+          forwarder["prefetch_skipped"], "prefetch task outcomes")
+    equal(forwarder["prefetch_started"], forwarder["prefetch_completed"], "prefetch completion")
+    equal(forwarder["prefetch_started"], result["prefetch_authoritative_queries"], "prefetch authority flow")
+    equal(result["authoritative_queries_total"], result["authoritative_queries"] +
+          result["prefetch_authoritative_queries"], "total authority traffic")
     equal(forwarder["manager_queries"], manager["queries"], "manager lookup flow")
     equal(forwarder["manager_directory_hits"], manager["directory_hits"], "manager hit flow")
     equal(forwarder["manager_directory_misses"], manager["directory_misses"], "manager miss flow")
@@ -47,6 +77,12 @@ def validate_results(result):
     equal(client["queries"], result["total_queries"], "client request count")
     equal(client["upstream_queries"], forwarder["queries"], "client -> forwarder flow")
     equal(forwarder["upstream_queries"], result["authoritative_queries"], "forwarder -> authority flow")
+    if "request_authority_queries" in result:
+        flags = result["request_authority_queries"]
+        equal(len(flags), result["total_queries"], "authority trace length")
+        if any(flag not in (0, 1) for flag in flags):
+            raise RuntimeError("authority trace flags must be 0 or 1")
+        equal(sum(flags), result["authoritative_queries"], "authority trace count")
     equal(forwarder["peer_queries"] + forwarder["cluster_child_queries"],
           client["peer_queries_received"], "peer query flow")
     equal(forwarder["peer_hits"] + forwarder["cluster_child_hits"],
@@ -65,8 +101,14 @@ def validate_results(result):
     equal(client["directory_removes_sent"], forwarder["directory_removes_received"], "remove notices")
     for name, row in (("client", client), ("forwarder", forwarder)):
         equal(row["queries"], row["hits"] + row["misses"], f"{name} cache decisions")
-        equal(row["upstream_queries"], row["misses"] - row["peer_hits"] - row["cluster_hits"],
+        equal(row["upstream_queries"], row["misses"] - row["peer_hits"] - row["cluster_hits"]
+              - row.get("coalesced_queries", 0),
               f"{name} upstream count")
+        equal(row.get("coalesced_queries", 0), sum(row.get(f"coalesced_{source}_waits", 0)
+              for source in ("authority", "peer", "cluster_forwarder", "cluster_client")),
+              f"{name} coalesced outcomes")
+        if row.get("coalesced_wait_latency_ms", 0) < 0:
+            raise RuntimeError("coalesced wait latency must be non-negative")
         equal(row["peer_queries"], row["peer_hits"] + row["peer_misses"], f"{name} probes")
         equal(row["cluster_queries"], row["cluster_hits"] + row["cluster_misses"], f"{name} cluster probes")
         equal(row["cluster_hits"], row["cluster_forwarder_hits"] + row["cluster_client_hits"],
@@ -83,10 +125,12 @@ def validate_results(result):
     for row in result["clients"] + result["forwarders"]:
         if not 0 <= row["live_cache_entries"] <= row["cache_entries"] <= row["cache_size"]:
             raise RuntimeError("cache capacity invariant failed")
-        if not 0 <= row["successful_reverse_queries"] <= row["peer_hits"] + row["cluster_client_hits"]:
+        client_sources = (row["peer_hits"] + row["cluster_client_hits"] +
+                          row.get("coalesced_peer_waits", 0) + row.get("coalesced_cluster_client_waits", 0))
+        if not 0 <= row["successful_reverse_queries"] <= client_sources:
             raise RuntimeError("successful reverse queries must come from a local or neighbor client")
     equal(result["ipc_messages_sent"], result["ipc_messages_received"], "IPC drain")
-    if result["experiment"] == "baseline":
+    if result["experiment"] in BASELINE_MODELS:
         equal(forwarder["manager_queries"], 0, "baseline manager lookups")
         equal(forwarder["manager_updates_sent"], 0, "baseline region advertisements")
         equal(forwarder["cluster_queries"], 0, "baseline cluster probes")

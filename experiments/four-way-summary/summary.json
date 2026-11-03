@@ -1,0 +1,212 @@
+{
+  "report_type": "historical_four_way_summary",
+  "simulation_rerun": false,
+  "same_effective_config_except_prefetch_switch": true,
+  "same_workload_and_ttl_fingerprints": true,
+  "same_source_version": false,
+  "standard_config": {
+    "seed": 42,
+    "time_scale": 2.0,
+    "min_time_scale": 0.0001,
+    "max_in_flight": 512,
+    "calibration_requests": 1000,
+    "timing": {
+      "max_mean_lag_seconds": 0.01,
+      "max_window_lag_seconds": 0.05,
+      "consecutive_lag_windows": 3,
+      "max_overrun_seconds": 0.1,
+      "probe_warm_up_seconds": 20,
+      "probe_duration_seconds": 30,
+      "max_attempts": 4,
+      "scale_multiplier": 2.0,
+      "auto_initial_time_scale": 2.0
+    },
+    "pin_cpu": true,
+    "workers": {
+      "client": 1,
+      "forwarder": 1,
+      "manager": 1
+    },
+    "prefetch": {
+      "enabled": true,
+      "report_seconds": 1.0,
+      "history_seconds": 300.0,
+      "advice_seconds": 5.0,
+      "alpha": 1,
+      "beta": 0,
+      "gamma": 1.0,
+      "epsilon": null,
+      "zeta": null,
+      "budget_ratio": 0.15,
+      "max_inflight_per_forwarder": 8
+    },
+    "record_wall_latencies": true,
+    "warm_up_seconds": 200,
+    "duration_seconds": 600,
+    "queries_per_second": 15000,
+    "num_clients": 30000,
+    "num_forwarders": 100,
+    "forwarder_cluster_size": 100,
+    "client_cache_size": 1000,
+    "forwarder_cache_size": 1000,
+    "replacement_policy": "lru",
+    "num_domains": 1000000,
+    "ttl_range": [
+      30,
+      300
+    ],
+    "ttl_distribution": {
+      "values": [
+        20,
+        60,
+        300,
+        900,
+        3600,
+        86400,
+        172800
+      ],
+      "probabilities": [
+        0.05,
+        0.35,
+        0.2,
+        0.2,
+        0.14,
+        0.05,
+        0.01
+      ]
+    },
+    "query_distribution": "zipf",
+    "zipf_alpha": 1.01,
+    "regional_preferences": {
+      "enabled": true,
+      "region_zipf_alpha": 1.15,
+      "client_zipf_alpha": 1.5,
+      "shared_rank_count": 128
+    },
+    "output_dir": "res",
+    "client_forwarder_RTT": 1,
+    "forwarder_forwarder_RTT": 2,
+    "forwarder_manager_RTT": 1,
+    "forwarder_authoritative_RTT": 110
+  },
+  "models": {
+    "baseline": {
+      "source_result": "res/comparison/run-b962cf34023a/baseline_results.json",
+      "total_queries": 8998486,
+      "warm_up_queries": 2997099,
+      "average_latency_ms": 19.092662032257426,
+      "average_wall_latency_ms": 0.08213315229962459,
+      "foreground_authoritative_queries": 1538512,
+      "prefetch_authoritative_queries": 0,
+      "total_authoritative_queries": 1538512,
+      "prefetch_stored": 0,
+      "prefetch_records_used": 0,
+      "prefetch_use_fraction": null,
+      "foreground_origin_fraction": 0.170974539494755,
+      "ttl_fingerprint_sha256": "5b4430d118fc1451109420a4da60deddcb4c5c9d6922ed6b2a468157ac49e0e1",
+      "query_coalescing": "not implemented in this earlier version",
+      "prefetch_scope": "disabled",
+      "config_matches_standard": true,
+      "timing_valid": true,
+      "cpu_pool": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "workload_fingerprint_sha256": "7b8b7d488caf2502728c3e1fc11424d58ff8fe029638b26113064510b41d7197",
+      "source_fingerprint_sha256": "8680af75f57b4a2d41603b5cc87cec8b97c6a3041c2063e93a04d1a3b147a5ab"
+    },
+    "baseline-prefetch": {
+      "source_result": "res/20261101-5/baseline-prefetch_results.json",
+      "total_queries": 8998486,
+      "warm_up_queries": 2997099,
+      "average_latency_ms": 17.626431268548952,
+      "average_wall_latency_ms": 2.1614076363123513,
+      "foreground_authoritative_queries": 1418273,
+      "prefetch_authoritative_queries": 276300,
+      "total_authoritative_queries": 1694573,
+      "prefetch_stored": 276300,
+      "prefetch_records_used": 145779,
+      "prefetch_use_fraction": 0.5276112920738328,
+      "foreground_origin_fraction": 0.15761240279753727,
+      "ttl_fingerprint_sha256": "5b4430d118fc1451109420a4da60deddcb4c5c9d6922ed6b2a468157ac49e0e1",
+      "query_coalescing": "per_forwarder_domain",
+      "prefetch_scope": "forwarder",
+      "config_matches_standard": true,
+      "timing_valid": true,
+      "cpu_pool": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "workload_fingerprint_sha256": "7b8b7d488caf2502728c3e1fc11424d58ff8fe029638b26113064510b41d7197",
+      "source_fingerprint_sha256": "bfda2d80242f4128adb1409c1e57ecad6d941eada911fd6cec54d29593870ccc"
+    },
+    "ReDNS": {
+      "source_result": "res/comparison/run-b962cf34023a/ReDNS_results.json",
+      "total_queries": 8998486,
+      "warm_up_queries": 2997099,
+      "average_latency_ms": 13.058172897085132,
+      "average_wall_latency_ms": 1.9636723908502374,
+      "foreground_authoritative_queries": 1020468,
+      "prefetch_authoritative_queries": 0,
+      "total_authoritative_queries": 1020468,
+      "prefetch_stored": 0,
+      "prefetch_records_used": 0,
+      "prefetch_use_fraction": null,
+      "foreground_origin_fraction": 0.11340441047527329,
+      "ttl_fingerprint_sha256": "5b4430d118fc1451109420a4da60deddcb4c5c9d6922ed6b2a468157ac49e0e1",
+      "query_coalescing": "not implemented in this earlier version",
+      "prefetch_scope": "disabled",
+      "config_matches_standard": true,
+      "timing_valid": true,
+      "cpu_pool": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "workload_fingerprint_sha256": "7b8b7d488caf2502728c3e1fc11424d58ff8fe029638b26113064510b41d7197",
+      "source_fingerprint_sha256": "8680af75f57b4a2d41603b5cc87cec8b97c6a3041c2063e93a04d1a3b147a5ab"
+    },
+    "ReDNS-prefetch": {
+      "source_result": "res/prefetch-ablation/run-44d4374192c2/ReDNS-prefetch_results.json",
+      "total_queries": 8998486,
+      "warm_up_queries": 2997099,
+      "average_latency_ms": 10.89955243582087,
+      "average_wall_latency_ms": 5.543935093649822,
+      "foreground_authoritative_queries": 838241,
+      "prefetch_authoritative_queries": 392214,
+      "total_authoritative_queries": 1230455,
+      "prefetch_stored": 392214,
+      "prefetch_records_used": 159054,
+      "prefetch_use_fraction": 0.40552861448087013,
+      "foreground_origin_fraction": 0.09315355938765699,
+      "ttl_fingerprint_sha256": "5b4430d118fc1451109420a4da60deddcb4c5c9d6922ed6b2a468157ac49e0e1",
+      "query_coalescing": "per_forwarder_domain",
+      "prefetch_scope": "cluster",
+      "config_matches_standard": true,
+      "timing_valid": true,
+      "cpu_pool": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "workload_fingerprint_sha256": "7b8b7d488caf2502728c3e1fc11424d58ff8fe029638b26113064510b41d7197",
+      "source_fingerprint_sha256": "078f115a32c85e7e58209d202607e95c248843200639bac6cc2252c2941d3dc1"
+    }
+  },
+  "historical_numeric_comparisons": {
+    "baseline-prefetch_vs_baseline": {
+      "historical_mean_rtt_reduction": 0.0767955123927323,
+      "historical_total_authority_change": 0.10143632288860926
+    },
+    "ReDNS-prefetch_vs_ReDNS": {
+      "historical_mean_rtt_reduction": 0.16530800122474354,
+      "historical_total_authority_change": 0.20577519334266237
+    }
+  }
+}

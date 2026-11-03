@@ -1,0 +1,57 @@
+{
+  "experimental_source_sha256": "7fa2309fc940c6bd78c623d8d388dec47e49b7f53d1ccb780dfd51598a40a59c",
+  "latency_definition": "Only foreground request link RTTs; prefetch work and IPC wall time excluded.",
+  "models": {
+    "baseline": {
+      "total_queries": 8998486,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 2568750,
+        "direct_client_probes_ms": 0,
+        "cluster_probes_ms": 0,
+        "cluster_client_probes_ms": 0,
+        "manager_lookups_ms": 0,
+        "foreground_authority_ms": 169238740
+      },
+      "ledger_total_ms": 171807490.0,
+      "recorded_total_ms": 171807490.0,
+      "recorded_average_ms": 19.092932966723513,
+      "prefetch_queries": 0,
+      "excluded_prefetch_rtt_ms": 0,
+      "checks_passed": true
+    },
+    "ReDNS": {
+      "total_queries": 8998486,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 2590347,
+        "direct_client_probes_ms": 159945,
+        "cluster_probes_ms": 795484,
+        "cluster_client_probes_ms": 288327,
+        "manager_lookups_ms": 1418046,
+        "foreground_authority_ms": 112233440
+      },
+      "ledger_total_ms": 117485589.0,
+      "recorded_total_ms": 117485589.0,
+      "recorded_average_ms": 13.056150668012375,
+      "prefetch_queries": 0,
+      "excluded_prefetch_rtt_ms": 0,
+      "checks_passed": true
+    },
+    "ReDNS-prefetch": {
+      "total_queries": 8998486,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 2597034,
+        "direct_client_probes_ms": 166239,
+        "cluster_probes_ms": 881878,
+        "cluster_client_probes_ms": 302595,
+        "manager_lookups_ms": 1424325,
+        "foreground_authority_ms": 108172680
+      },
+      "ledger_total_ms": 113544751.0,
+      "recorded_total_ms": 113544751.0,
+      "recorded_average_ms": 12.618206107116242,
+      "prefetch_queries": 83539,
+      "excluded_prefetch_rtt_ms": 9189290,
+      "checks_passed": true
+    }
+  }
+}

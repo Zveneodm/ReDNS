@@ -1,0 +1,42 @@
+{
+  "experimental_source_sha256": "f6555578254925aad291973f069252afd8235d6d3cc28a743b0dd099118571cf",
+  "latency_definition": "Only foreground request link RTTs; prefetch work and IPC wall time excluded.",
+  "models": {
+    "baseline-prefetch": {
+      "total_queries": 17897,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 8428,
+        "direct_client_probes_ms": 0,
+        "cluster_probes_ms": 0,
+        "cluster_client_probes_ms": 0,
+        "manager_lookups_ms": 0,
+        "foreground_authority_ms": 794090,
+        "coalesced_wait_ms": 440.0
+      },
+      "ledger_total_ms": 802958.0,
+      "recorded_total_ms": 802958.0,
+      "recorded_average_ms": 44.86550818572945,
+      "prefetch_queries": 763,
+      "excluded_prefetch_rtt_ms": 83930,
+      "checks_passed": true
+    },
+    "ReDNS-prefetch": {
+      "total_queries": 17897,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 8845,
+        "direct_client_probes_ms": 2814,
+        "cluster_probes_ms": 1882,
+        "cluster_client_probes_ms": 867,
+        "manager_lookups_ms": 4726,
+        "foreground_authority_ms": 416350,
+        "coalesced_wait_ms": 447.0
+      },
+      "ledger_total_ms": 435931.0,
+      "recorded_total_ms": 435931.0,
+      "recorded_average_ms": 24.357769458568477,
+      "prefetch_queries": 914,
+      "excluded_prefetch_rtt_ms": 100540,
+      "checks_passed": true
+    }
+  }
+}

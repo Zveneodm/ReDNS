@@ -1,0 +1,49 @@
+{
+  "standard_config_matches": true,
+  "checks_passed": true,
+  "source_fingerprint_sha256": "078f115a32c85e7e58209d202607e95c248843200639bac6cc2252c2941d3dc1",
+  "models": {
+    "baseline-prefetch": {
+      "result_file": "run-44d4374192c2/baseline-prefetch_results.json",
+      "result_sha256": "a7b7226b1ea4ddc14e12e6f9befe41e0548ada2443ea0eeb7278686c499745b2",
+      "total_queries": 8998486,
+      "authority_trace_count": 1558370,
+      "authoritative_queries": 1558370,
+      "prefetch_authoritative_queries": 353472,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 2566789,
+        "direct_client_probes_ms": 0,
+        "cluster_probes_ms": 0,
+        "cluster_client_probes_ms": 0,
+        "manager_lookups_ms": 0,
+        "foreground_authority_ms": 171420700,
+        "coalesced_wait_ms": 1540.0
+      },
+      "ledger_total_ms": 173989029.0,
+      "average_latency_ms": 19.3353669717328,
+      "excluded_prefetch_rtt_ms": 38881920,
+      "checks_passed": true
+    },
+    "ReDNS-prefetch": {
+      "result_file": "run-44d4374192c2/ReDNS-prefetch_results.json",
+      "result_sha256": "fec70ef8f7bce18857d28c788211d2da601e4d509a74ffac58ef7f811ba8b7f8",
+      "total_queries": 8998486,
+      "authority_trace_count": 838241,
+      "authoritative_queries": 838241,
+      "prefetch_authoritative_queries": 392214,
+      "foreground_rtt_ledger_ms": {
+        "client_forwarder_ms": 2618840,
+        "direct_client_probes_ms": 187333,
+        "cluster_probes_ms": 1212958,
+        "cluster_client_probes_ms": 357380,
+        "manager_lookups_ms": 1444670,
+        "foreground_authority_ms": 92206510,
+        "coalesced_wait_ms": 51779.0
+      },
+      "ledger_total_ms": 98079470.0,
+      "average_latency_ms": 10.89955243582087,
+      "excluded_prefetch_rtt_ms": 43143540,
+      "checks_passed": true
+    }
+  }
+}

@@ -4,8 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from sim.config import DEFAULT_CONFIG, load_config, validate_config
-from sim.experiment import write_results
+from lib.config import DEFAULT_CONFIG, load_config, validate_config
+from lib.experiment import write_results
 
 
 class ConfigTests(unittest.TestCase):

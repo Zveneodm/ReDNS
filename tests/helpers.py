@@ -1,8 +1,8 @@
 """Small, fixed test workloads and an in-memory IPC transport."""
 
-from sim.clock import ManualClock
-from sim.config import validate_config
-from sim.realtime import simulation_roles, _Layer
+from lib.clock import ManualClock
+from lib.config import validate_config
+from lib.realtime import simulation_roles, _Layer
 
 
 def config(**overrides):

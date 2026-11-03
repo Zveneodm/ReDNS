@@ -1,1 +1,1 @@
-"""Entry points and shared configuration for DNS experiments."""
+"""Experiment entry points and synthetic traffic generators."""

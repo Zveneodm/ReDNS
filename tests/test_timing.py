@@ -7,11 +7,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from sim.comparison import run_comparison, validate_pair
-from sim.config import DEFAULT_CONFIG
-from sim.experiment import run_experiment
-from sim.realtime import RealtimeSimulation
-from sim.timing import SimulationOverload, TimingMonitor
+from lib.comparison import run_comparison, validate_pair
+from lib.config import DEFAULT_CONFIG
+from lib.experiment import run_experiment
+from lib.realtime import RealtimeSimulation
+from lib.timing import SimulationOverload, TimingMonitor
 from tests.helpers import config
 
 
@@ -62,9 +62,9 @@ class TimingTests(unittest.TestCase):
             output = Path(folder) / "existing.json"
             output.write_text('{"previous": true}')
             invalid = {"timing_valid": False, "timing_validation": {"reasons": ["backlog"]}}
-            with patch("sim.experiment.load_config", return_value=config()), \
+            with patch("lib.experiment.load_config", return_value=config()), \
                     redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-                run_experiment(lambda cfg: invalid, "test", "unused.json", ["--output", str(output)])
+                run_experiment(lambda cfg: invalid, "test", ["--output", str(output)])
             self.assertEqual(json.loads(output.read_text()), {"previous": True})
 
 

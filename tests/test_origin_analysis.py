@@ -5,7 +5,7 @@ from struct import pack
 import unittest
 from unittest.mock import patch
 
-from sim.analyze_origin import analyze_saved_result, analyze_trace, authority_threshold
+from lib.analysis.origin import analyze_saved_result, analyze_trace, authority_threshold
 from tests.helpers import config
 
 
@@ -51,6 +51,18 @@ class OriginAnalysisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unambiguously"):
             authority_threshold(result)
 
+    def test_authority_trace_distinguishes_waiters_with_same_origin_latency(self):
+        cfg = config(num_domains=1, warm_up_seconds=0)
+        arrivals = [(0.1, 0, 0), (0.1, 2, 0)]
+        report = analyze_trace(cfg, [100], arrivals, [111, 111], threshold=None, origin_flags=[1, 0])
+        self.assertEqual(report["total_queries"], 2)
+        self.assertEqual(report["authoritative_queries"], 1)
+        for flags in ([1], [1, 0, 0], [1, 2]):
+            with self.subTest(flags=flags), self.assertRaisesRegex(ValueError, "authority trace"):
+                analyze_trace(cfg, [100], arrivals, [111, 111], threshold=None, origin_flags=flags)
+        with self.assertRaisesRegex(ValueError, "require an authority trace"):
+            authority_threshold({"config": cfg, "forwarder": {"coalesced_queries": 1}})
+
     def test_incomplete_or_out_of_order_trace_is_rejected(self):
         cfg, ttls, arrivals, latencies = self.fixture()
         for bad in (latencies[:-1], latencies + [111]):
@@ -72,9 +84,15 @@ class OriginAnalysisTests(unittest.TestCase):
                      client={"lru_evictions": 0, "random_evictions": 0},
                      forwarder={"peer_misses": 0, "cluster_misses": 0,
                                 "cluster_child_misses": 0, "records_transferred": 0})
-        with patch("sim.analyze_origin.authority_ttls", return_value=ttls), \
-                patch("sim.analyze_origin.workload_arrivals", return_value=arrivals):
+        with patch("lib.analysis.origin.authority_ttls", return_value=ttls), \
+                patch("lib.analysis.origin.workload_arrivals", return_value=arrivals):
             self.assertTrue(analyze_saved_result(saved)["fingerprints_verified"])
+            traced = deepcopy(saved)
+            traced["request_authority_queries"] = [int(latency >= 111) for latency in latencies]
+            traced["forwarder"]["coalesced_queries"] = 1
+            report = analyze_saved_result(traced)
+            self.assertTrue(report["fingerprints_verified"])
+            self.assertEqual(report["authority_classification"], "request_trace")
             for field in ("workload_fingerprint_sha256", "ttl_fingerprint_sha256",
                           "total_queries", "warm_up_queries", "authoritative_queries"):
                 bad = deepcopy(saved)

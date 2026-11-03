@@ -5,7 +5,9 @@ workload generators or wall-time scheduling belong in this module.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from functools import partial
+from typing import Callable, Optional
 
 from src.cache import new_stats
 from src.cluster import ForwarderClusters
@@ -13,15 +15,34 @@ from src.manager import ClusterManager, new_manager_stats
 from src.models import AuthoritativeServer, BaselineForwarder, Client, ReDNSForwarder
 from src.records import Record
 from src.replacement import replacement_seed
+from src.auxiliary.prefetch_protocol import PrefetchProtocol
+from src.variants import COOPERATIVE_MODELS, MODELS
 
 
-class DNSProtocol(ABC):
-    def __init__(self, role, model, config, clock, *, ttls=(), node_ids=None, endpoint=None):
+@dataclass
+class _QueryWaiter:
+    done: Callable
+    measure: bool
+    requester: Optional[int]
+    completed_rtt: float = 0.0
+
+
+@dataclass
+class _InflightQuery:
+    leader: _QueryWaiter
+    waiters: list = field(default_factory=list)
+    completed_rtt: float = 0.0
+
+
+class DNSProtocol(PrefetchProtocol, ABC):
+    def __init__(self, role, model, config, clock, *, ttls=(), node_ids=None, endpoint=None,
+                 manager_shards=1, manager_shard=0):
         if role not in ("client", "forwarder", "authority", "manager"):
             raise ValueError(f"unknown role: {role}")
-        if model not in ("baseline", "ReDNS"):
+        if model not in MODELS:
             raise ValueError(f"unknown model: {model}")
         self.role, self.model, self.cfg, self.clock = role, model, config, clock
+        self.cooperation_enabled = model in COOPERATIVE_MODELS
         self.endpoint = endpoint
         self.clusters = ForwarderClusters(config["num_forwarders"], config["forwarder_cluster_size"])
         self.nodes = []
@@ -29,6 +50,9 @@ class DNSProtocol(ABC):
         self.formal_stats = []
         self.warm_stats = {}
         self.pending = {}
+        # Transport tokens live in pending; foreground resolutions are indexed
+        # separately by the owning forwarder and its actual cache key.
+        self.inflight_queries = {}
         self.token = 0
         self.authority = None
         self.managers = {}
@@ -37,7 +61,7 @@ class DNSProtocol(ABC):
         self.region_announced = {}
         self.region_version = 0
         if role == "manager":
-            if model != "ReDNS":
+            if model == "baseline":
                 raise ValueError("baseline does not have cluster managers")
             for first in range(0, config["num_forwarders"], self.clusters.size):
                 cluster_id = first // self.clusters.size
@@ -52,7 +76,7 @@ class DNSProtocol(ABC):
             count = config["num_clients"] if role == "client" else config["num_forwarders"]
             size = config["client_cache_size"] if role == "client" else config["forwarder_cache_size"]
             node_class = (Client if role == "client" else
-                          ReDNSForwarder if model == "ReDNS" else BaselineForwarder)
+                          ReDNSForwarder if self.cooperation_enabled else BaselineForwarder)
             self.node_ids = range(count) if node_ids is None else node_ids
             self.nodes = [None] * count
             self.formal_stats = [None] * count
@@ -61,7 +85,7 @@ class DNSProtocol(ABC):
                                   replacement_policy=config["replacement_policy"],
                                   replacement_seed=replacement_seed(config["seed"], role, index))
                 node._runtime_measure = False
-                if model == "ReDNS":
+                if self.cooperation_enabled:
                     if role == "client":
                         node.on_store = partial(self._cache_stored, index)
                         node.on_remove = partial(self._cache_removed, index)
@@ -71,6 +95,7 @@ class DNSProtocol(ABC):
                         node.on_remove = partial(self._region_removed, index)
                 self.nodes[index] = node
                 self.formal_stats[index] = node.stats
+        self._init_prefetch(manager_shards, manager_shard)
 
     @abstractmethod
     def _send(self, role, message):
@@ -113,7 +138,7 @@ class DNSProtocol(ABC):
                                domain, deadline, self.region_version, node._runtime_measure))
 
     def _select_manager(self, cluster_id, measure):
-        if self.role != "manager" or self.model != "ReDNS":
+        if self.role != "manager" or self.model == "baseline":
             raise ValueError("directory messages must be handled by cluster managers")
         manager = self.managers[cluster_id]
         if measure:
@@ -149,15 +174,24 @@ class DNSProtocol(ABC):
         self.token += 1
         return (self.endpoint, self.token) if self.endpoint is not None else self.token
 
-    def _fetch(self, node_id, domain, fill, measure, done):
+    def _fetch(self, node_id, domain, fill, measure, done, *, trace=None):
         role, target, _ = self._upstream(node_id)
         token = self._new_token()
-        self.pending[token] = done
+        def received(answer, authority_query):
+            if trace is not None:
+                trace["authority_query"] = authority_query
+            done(answer)
+
+        self.pending[token] = received
         requester = node_id if self.role == "client" else None
         self._send(role, ("query", self.endpoint or self.role, token, target, domain, fill, measure, requester))
 
-    def _query(self, node_id, domain, fill, measure, done, *, requester=None):
+    def _query(self, node_id, domain, fill, measure, done, *, requester=None, trace=None):
+        trace = {} if trace is None else trace
+        trace["authority_query"] = False
+        done = self._demand_started(node_id, domain, done, measure=measure)
         if self.role == "authority":
+            trace["authority_query"] = True
             record = self.authority.lookup(domain, measure=measure)
             done((record.expires_at, record.auth_ttl, 0.0))
             return
@@ -169,6 +203,9 @@ class DNSProtocol(ABC):
             done((record.expires_at, record.auth_ttl, 0.0))
             return
         node.stats["misses"] += 1
+        if self.role == "forwarder" and fill:
+            self._forwarder_miss(node_id, domain, measure, done, requester, trace)
+            return
         _, _, rtt = self._upstream(node_id)
 
         def received(answer, extra_latency=0.0):
@@ -178,19 +215,65 @@ class DNSProtocol(ABC):
                 current.insert_cache(Record(domain, expiry, auth_ttl))
             done((expiry, auth_ttl, latency + (rtt if fill else 0.0) + extra_latency))
 
+        self._select(node_id, measure).stats["upstream_queries"] += 1
+        self._fetch(node_id, domain, fill, measure, received, trace=trace)
+
+    def _forwarder_miss(self, node_id, domain, measure, done, requester, trace):
+        key = (node_id, domain)
+        flight = self.inflight_queries.get(key)
+        if flight is not None:
+            self._select(node_id, measure).stats["coalesced_queries"] += 1
+            flight.waiters.append(_QueryWaiter(done, measure, requester, flight.completed_rtt))
+            return
+        flight = _InflightQuery(_QueryWaiter(done, measure, requester))
+        self.inflight_queries[key] = flight
+
+        def progress(completed_rtt):
+            flight.completed_rtt = completed_rtt
+
+        def completed(answer, source_kind, source_client=None):
+            # Release before cache callbacks and replies. This also removes the
+            # entry if a cache callback raises, and permits reentrant queries.
+            self.inflight_queries.pop(key)
+            expiry, auth_ttl, full_rtt = answer
+            self._select(node_id, measure).insert_cache(Record(domain, expiry, auth_ttl))
+            for waiter, joined in [(flight.leader, False)] + [(item, True) for item in flight.waiters]:
+                current = self._select(node_id, waiter.measure)
+                remaining_rtt = full_rtt
+                if joined:
+                    # The simulator accumulates completed link RTTs rather than
+                    # sleeping for network transit. Charge only links still
+                    # unresolved at join, never IPC wall time or a new fetch.
+                    remaining_rtt = max(0.0, full_rtt - waiter.completed_rtt)
+                    current.stats["coalesced_wait_latency_ms"] += remaining_rtt
+                    current.stats[f"coalesced_{source_kind}_waits"] += 1
+                if (source_client is not None and waiter.requester is not None
+                        and source_client != waiter.requester):
+                    current.stats["successful_reverse_queries"] += 1
+                waiter.done((expiry, auth_ttl, remaining_rtt))
+
+        try:
+            self._resolve_forwarder_miss(node_id, domain, measure, completed, progress, trace)
+        except BaseException:
+            self.inflight_queries.pop(key, None)
+            raise
+
+    def _resolve_forwarder_miss(self, node_id, domain, measure, done, progress, trace):
         def upstream(extra_latency=0.0):
             self._select(node_id, measure).stats["upstream_queries"] += 1
-            self._fetch(node_id, domain, fill, measure, partial(received, extra_latency=extra_latency))
 
-        if fill and isinstance(node, ReDNSForwarder):
+            def received(answer):
+                expiry, auth_ttl, latency = answer
+                done((expiry, auth_ttl, latency + self.cfg["forwarder_authoritative_RTT"]
+                      + extra_latency), "authority")
+
+            self._fetch(node_id, domain, True, measure, received, trace=trace)
+
+        if isinstance(self.nodes[node_id], ReDNSForwarder):
             def local_received(answer, local_cost):
                 if answer is not None:
                     expiry, auth_ttl, source_client, _ = answer
-                    current = self._select(node_id, measure)
-                    if requester is not None and source_client != requester:
-                        current.stats["successful_reverse_queries"] += 1
-                    current.insert_cache(Record(domain, expiry, auth_ttl))
-                    done((expiry, auth_ttl, local_cost))
+                    done((expiry, auth_ttl, local_cost), "peer", source_client)
                     return
 
                 def cluster_received(cluster_answer, cluster_cost):
@@ -198,19 +281,17 @@ class DNSProtocol(ABC):
                         upstream(local_cost + cluster_cost)
                         return
                     expiry, auth_ttl, source_client, _ = cluster_answer
-                    current = self._select(node_id, measure)
-                    if source_client is not None and requester is not None and source_client != requester:
-                        current.stats["successful_reverse_queries"] += 1
-                    current.insert_cache(Record(domain, expiry, auth_ttl))
-                    done((expiry, auth_ttl, local_cost + cluster_cost))
+                    kind = "cluster_forwarder" if source_client is None else "cluster_client"
+                    done((expiry, auth_ttl, local_cost + cluster_cost), kind, source_client)
 
-                self._cluster_lookup(node_id, domain, measure, cluster_received)
+                self._cluster_lookup(node_id, domain, measure, cluster_received,
+                                     progress=lambda cost: progress(local_cost + cost))
 
-            self._probe_clients(node_id, domain, measure, local_received)
+            self._probe_clients(node_id, domain, measure, local_received, progress=progress)
             return
         upstream()
 
-    def _probe_clients(self, node_id, domain, measure, done, *, assisting=False):
+    def _probe_clients(self, node_id, domain, measure, done, *, assisting=False, progress=None):
         """Try only directory-advertised direct clients; never recurse upstream.
 
         Every actual probe costs one RTT, including stale hints. A failed hint
@@ -235,6 +316,8 @@ class DNSProtocol(ABC):
             def received(answer):
                 nonlocal elapsed
                 elapsed += self.cfg["client_forwarder_RTT"]
+                if progress is not None:
+                    progress(elapsed)
                 current = self._select(node_id, measure)
                 if answer is None:
                     current.stats[prefix + "misses"] += 1
@@ -254,7 +337,7 @@ class DNSProtocol(ABC):
 
         attempt()
 
-    def _cluster_lookup(self, node_id, domain, measure, done):
+    def _cluster_lookup(self, node_id, domain, measure, done, *, progress=None):
         """Ask the manager once, then contact only its live region hints."""
         if len(self.clusters.members(node_id)) <= 1:
             done(None, 0.0)
@@ -267,6 +350,8 @@ class DNSProtocol(ABC):
             current.stats["manager_directory_hits" if candidates else "manager_directory_misses"] += 1
             remaining = iter(candidates)
             elapsed = self.cfg["forwarder_manager_RTT"]
+            if progress is not None:
+                progress(elapsed)
 
             def attempt():
                 nonlocal elapsed
@@ -284,6 +369,8 @@ class DNSProtocol(ABC):
                 def received(answer, helper_cost):
                     nonlocal elapsed
                     elapsed += self.cfg["forwarder_forwarder_RTT"] + helper_cost
+                    if progress is not None:
+                        progress(elapsed)
                     origin = self._select(node_id, measure)
                     if answer is None:
                         origin.stats["cluster_misses"] += 1
@@ -312,11 +399,13 @@ class DNSProtocol(ABC):
 
     def _serve_cluster(self, origin, token, node_id, domain, measure):
         """A helper checks itself and its children, without neighbors/authority."""
-        if (self.role != "forwarder" or self.model != "ReDNS"
+        if (self.role != "forwarder" or not self.cooperation_enabled
                 or not self.clusters.can_query(origin, node_id)):
             raise ValueError("cluster queries must stay between distinct ReDNS forwarders in one group")
         node = self._select(node_id, measure)
         node.stats["cluster_queries_received"] += 1
+        if self.prefetch_enabled:
+            self.prefetch_load[node_id] += 1
 
         def reply(answer, helper_cost):
             current = self._select(node_id, measure)
@@ -351,12 +440,21 @@ class DNSProtocol(ABC):
                                   record.auth_ttl, node._runtime_measure))
 
     def handle_message(self, message):
+        if message[0].startswith("prefetch_"):
+            if not self.prefetch_enabled or not self._prefetch_message(message):
+                raise ValueError("unexpected prefetch message")
+            return
         kind = message[0]
         if kind == "query":
             _, sender, token, node, domain, fill, measure, requester = message
+            trace = {}
             self._query(node, domain, fill, measure,
-                        lambda answer: self._send(sender, ("answer", token, answer)),
-                        requester=requester)
+                        lambda answer: self._send(sender, ("query_answer", token, answer,
+                                                          trace["authority_query"])),
+                        requester=requester, trace=trace)
+        elif kind == "query_answer":
+            _, token, answer, authority_query = message
+            self.pending.pop(token)(answer, authority_query)
         elif kind in ("answer", "peer_answer", "manager_answer"):
             _, token, answer = message
             self.pending.pop(token)(answer)

@@ -7,6 +7,10 @@ MANAGER_FIELDS = (
     "queries", "directory_hits", "directory_misses",
     "updates_received", "updates_applied", "updates_ignored",
     "feedback_received", "feedback_applied", "feedback_ignored",
+    "prefetch_reports_received", "prefetch_observations_received",
+    "prefetch_advice_runs", "prefetch_advised", "prefetch_tasks_sent",
+    "prefetch_budget_demand", "prefetch_budget_allowance",
+    "prefetch_budget_reserved", "prefetch_budget_refunded", "prefetch_budget_blocked",
 )
 
 
@@ -35,6 +39,7 @@ class ClusterManager:
         self.versions = {}
         self.entries = 0
         self.stats = new_manager_stats()
+        self.loads = {}
 
     def _check_member(self, forwarder):
         if forwarder not in self.members:
@@ -76,6 +81,9 @@ class ClusterManager:
         candidates = [(forwarder, deadline, version)
                       for forwarder, (deadline, version) in sorted(self.by_domain.get(domain, {}).items())
                       if forwarder != requester]
+        if self.loads:
+            candidates.sort(key=lambda candidate: (self.loads.get(candidate[0], float("inf")),
+                                                    candidate[0]))
         self.stats["directory_hits" if candidates else "directory_misses"] += 1
         return candidates
 

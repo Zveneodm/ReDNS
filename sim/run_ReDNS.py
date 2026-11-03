@@ -6,13 +6,14 @@ import sys
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from sim.experiment import run_experiment
-from sim.realtime import RealtimeSimulation
+from lib.experiment import run_experiment
+from lib.realtime import RealtimeSimulation
+from lib.config import experiment_model
 
 
 class Simulation(RealtimeSimulation):
     def __init__(self, config):
-        super().__init__(config, "ReDNS")
+        super().__init__(config, experiment_model("ReDNS", config))
 
 
 def run_simulation(config):
@@ -20,7 +21,7 @@ def run_simulation(config):
 
 
 def main(argv=None):
-    return run_experiment(run_simulation, "ReDNS", "ReDNS_results.json", argv)
+    return run_experiment(run_simulation, "ReDNS", argv)
 
 
 if __name__ == "__main__":

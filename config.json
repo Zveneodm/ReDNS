@@ -43,5 +43,18 @@
   "client_forwarder_RTT": 1,
   "forwarder_forwarder_RTT": 2,
   "forwarder_manager_RTT": 1,
-  "forwarder_authoritative_RTT": 110
+  "forwarder_authoritative_RTT": 110,
+  "prefetch": {
+    "enabled": true,
+    "report_seconds": 1.0,
+    "history_seconds": 300.0,
+    "advice_seconds": 5.0,
+    "alpha": 1,
+    "beta": 0,
+    "gamma": 1.0,
+    "epsilon": null,
+    "zeta": null,
+    "budget_ratio": 0.15,
+    "max_inflight_per_forwarder": 8
+  }
 }

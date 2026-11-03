@@ -2,8 +2,8 @@ from contextlib import redirect_stdout
 import io
 import unittest
 
-from sim.config import validate_config
-from sim.realtime import RealtimeSimulation
+from lib.config import validate_config
+from lib.realtime import RealtimeSimulation
 from src.cluster import ForwarderClusters
 from src.records import Record
 from tests.helpers import ProtocolHarness, config

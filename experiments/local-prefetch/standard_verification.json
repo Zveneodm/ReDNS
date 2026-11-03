@@ -1,0 +1,15 @@
+{
+  "checks_passed": true,
+  "source_unchanged": true,
+  "config_matches_start": true,
+  "result_sha256": "20f6e8ed7146a8e7242cbb9b87e66145904c665b2c5ef946f17cee813743a30c",
+  "request_count": 8998486,
+  "authority_trace_count": 1418273,
+  "foreground_rtt_ledger_ms": {
+    "client_forwarder_ms": 2586865,
+    "foreground_authority_ms": 156010030,
+    "coalesced_wait_ms": 14300.0
+  },
+  "ledger_total_ms": 158611195.0,
+  "prefetch_rtt_excluded_ms": 30393000
+}

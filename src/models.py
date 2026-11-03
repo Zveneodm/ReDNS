@@ -56,6 +56,7 @@ class AuthoritativeServer:
         self.ttls = tuple(ttls)
         self.clock = clock
         self.queries = 0
+        self.prefetch_queries = 0
 
     def lookup(self, domain, *, measure=True):
         if measure:
